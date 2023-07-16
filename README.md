@@ -14,5 +14,5 @@ Finds book titles for a list of ISBN codes using various APIs.
 
 The following APIs are tried in this order:
 1. [ISBNdb](https://isbndb.com/apidocs/v2) (if an API key is available in the `ISBNDB_API_KEY` environment variable)
-2. [Google Books](https://developers.google.com/books/)
-3. [Open Library](https://openlibrary.org/developers/api)
+2. [Open Library](https://openlibrary.org/developers/api)
+3. [Google Books](https://developers.google.com/books/)
