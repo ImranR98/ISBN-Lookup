@@ -33,14 +33,14 @@ module.exports.fetchBookTitle = async (isbn, isbnDbKey) => {
     }
   }
   try {
-    titles.push({ title: await fetchBookTitleFromOpenLibrary(isbn), source: 'Open Library', isbn })
-  } catch (error) {
-    if (isDev) console.error(`Failed to fetch book title from Open Library for ISBN ${isbn}: ${error}`)
-  }
-  try {
     titles.push({ title: await fetchBookTitleFromGoogleBooks(isbn), source: 'Google Books', isbn })
   } catch (error) {
     if (isDev) console.error(`Failed to fetch book title from Google Books for ISBN ${isbn}: ${error}`)
+  }
+  try {
+    titles.push({ title: await fetchBookTitleFromOpenLibrary(isbn), source: 'Open Library', isbn })
+  } catch (error) {
+    if (isDev) console.error(`Failed to fetch book title from Open Library for ISBN ${isbn}: ${error}`)
   }
   return titles
 }
