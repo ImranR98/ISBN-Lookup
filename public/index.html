@@ -101,7 +101,7 @@
             let successCount = 0
             try {
                 for (let i = 0; i < isbns.length; i++) {
-                    let titles = get(`/${isbns[i]}/title`)
+                    let titles = get(`/${isbns[i]}/title`) || []
                     if (titles) {
                         try {
                             titles = JSON.parse(titles)
