@@ -123,6 +123,8 @@
                 }
                 if ((successCount / (isbns.length / 2)) < 0.75) { // Less than 75% is a fail
                     responsePanel.className = "message is-danger"
+                } else {
+                    responsePanel.className = "message is-success"
                 }
             } catch (e) {
                 responsePanel.className = "message is-danger"
