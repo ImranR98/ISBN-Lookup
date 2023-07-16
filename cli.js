@@ -30,7 +30,8 @@ if (inputFile.endsWith('.txt')) {
 async function fetchBookTitles(isbnList) {
   const bookTitles = {};
   for (const isbn of isbnList) {
-    bookTitles[isbn] = await isbnLookup.fetchBookTitle(isbn, process.env.ISBNDB_API_KEY);
+    const res = (await isbnLookup.fetchBookTitle(isbn, process.env.ISBNDB_API_KEY))
+    bookTitles[isbn] = res && res[0] ? res[0].title : null;
   }
   return bookTitles;
 }

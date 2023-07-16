@@ -72,9 +72,15 @@
             })
         }
         function getResultsTable(results) {
-            let table = '<table class="table">\n<tr><th>ISBN</th><th>Title</th></tr>\n'
+            let table = '<table class="table">\n<tr><th>ISBN</th><th>Title</th><th>Alternative Titles</th></tr>\n'
             for (let i = 0; i < results.length; i++) {
-                table += `<tr><td>${results[i].isbn}</td><td>${results[i].title}</td></tr>\n`
+                const titles = results[i]
+                const mainTitle = titles[0]
+                const alternativeTitles = titles.slice(1)
+                table += `<tr><td>${mainTitle.isbn
+                    }</td><td>${mainTitle.title
+                    }</td><td>${alternativeTitles.map(r => r.title).join(', ')
+                    }</td></tr>\n`
             }
             table += '</table>'
             return table
@@ -95,20 +101,19 @@
             let successCount = 0
             try {
                 for (let i = 0; i < isbns.length; i++) {
-                    let result = get(`/${isbns[i]}/title`)
-                    if (result) {
+                    let titles = get(`/${isbns[i]}/title`)
+                    if (titles) {
                         try {
-                            result = JSON.parse(result)
+                            titles = JSON.parse(titles)
                         } catch (e) {
-                            result = null
+                            titles = [{ isbn: isbns[i], title: '', source: null }]
                         }
                     }
-                    if (!result) {
-                        result = { isbn: isbns[i], title: '', source: null }
-                    } else {
+                    if (titles.length > 0) {
                         successCount++
                     }
-                    results.push(result)
+                    console.log(titles)
+                    results.push(titles)
                     responsePanelDiv.innerHTML = getResultsTable(results)
                     if (i != isbns.length - 1) {
                         responsePanelDiv.innerHTML += '<p>Loading more...</p>'

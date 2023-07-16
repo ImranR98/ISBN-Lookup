@@ -11,10 +11,9 @@ app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] })
 app.get('/:isbn/title', async (req, res) => {
   try {
     const result = await isbnLookup.fetchBookTitle(req.params.isbn, process.env.ISBNDB_API_KEY)
-    if (!result) {
+    if (result.length == 0) {
       res.status(204).send()
     } else {
-      result.isbn = req.params.isbn
       res.send(result)
     }
   } catch (error) {

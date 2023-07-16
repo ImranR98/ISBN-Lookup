@@ -24,27 +24,23 @@ async function fetchBookTitleFromOpenLibrary(isbn) {
 
 // Define a function to fetch the book title for a given ISBN code
 module.exports.fetchBookTitle = async (isbn, isbnDbKey) => {
-  let title = null
+  let titles = []
   if (isbnDbKey) {
     try {
-      title = { title: await fetchBookTitleFromISBNdb(isbn, isbnDbKey), source: 'ISBNdb' }
+      titles.push({ title: await fetchBookTitleFromISBNdb(isbn, isbnDbKey), source: 'ISBNdb', isbn })
     } catch (error) {
-      console.error(`Failed to fetch book title from ISBNdb for ISBN ${isbn}: ${error}`)
+      if (isDev) console.error(`Failed to fetch book title from ISBNdb for ISBN ${isbn}: ${error}`)
     }
   }
-  if (!title) {
-    try {
-      title = { title: await fetchBookTitleFromOpenLibrary(isbn), source: 'Open Library' }
-    } catch (error) {
-      console.error(`Failed to fetch book title from Open Library for ISBN ${isbn}: ${error}`)
-    }
+  try {
+    titles.push({ title: await fetchBookTitleFromOpenLibrary(isbn), source: 'Open Library', isbn })
+  } catch (error) {
+    if (isDev) console.error(`Failed to fetch book title from Open Library for ISBN ${isbn}: ${error}`)
   }
-  if (!title) {
-    try {
-      title = { title: await fetchBookTitleFromGoogleBooks(isbn), source: 'Google Books' }
-    } catch (error) {
-      console.error(`Failed to fetch book title from Google Books for ISBN ${isbn}: ${error}`)
-    }
+  try {
+    titles.push({ title: await fetchBookTitleFromGoogleBooks(isbn), source: 'Google Books', isbn })
+  } catch (error) {
+    if (isDev) console.error(`Failed to fetch book title from Google Books for ISBN ${isbn}: ${error}`)
   }
-  return title
+  return titles
 }
