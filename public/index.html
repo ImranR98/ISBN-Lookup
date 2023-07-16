@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+    <style>
+        @media (prefers-color-scheme: dark) {
+
+            html,
+            body {
+                background-color: #222;
+                color: #fff;
+            }
+
+            .label {
+                color: #fff;
+            }
+        }
+    </style>
+    <title>ISBN Lookup</title>
+</head>
+
+<body>
+    <section class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-half">
+                    <form onsubmit="event.preventDefault(); lookupISBNs()">
+                        <div class="field">
+                            <label class="label">Enter ISBNs</label>
+                            <div class="control">
+                                <textarea class="textarea" id="isbnInput" rows="30"></textarea>
+                            </div>
+                        </div>
+                        <div class="field">
+                            <div class="control button-container">
+                                <button id="submitButton" class="button is-primary is-fullwidth"
+                                    type="submit">Lookup</button>
+                            </div>
+                        </div>
+                    </form>
+                    <article id="responsePanel" class="message is-success" style="display: none; margin-top: 1rem;">
+                        <div class="message-body"></div>
+                    </article>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        const isbnInput = document.getElementById("isbnInput")
+        const responsePanel = document.getElementById("responsePanel")
+        const responsePanelDiv = document.querySelector("#responsePanel div")
+        const submitButton = document.getElementById("submitButton")
+        isbnInput.onclick = () => {
+            isbnInput.rows = 30
+        }
+        function get(url) {
+            var request = new XMLHttpRequest();
+            request.open('GET', url, false);
+            request.send(null);
+            if (request.status === 200) {
+                return request.responseText;
+            } else {
+                return null;
+            }
+        }
+        function timeout(time) {
+            return new Promise((resolve, reject) => {
+                setTimeout(() => {
+                    resolve()
+                }, time);
+            })
+        }
+        function getResultsTable(results) {
+            let table = '<table class="table">\n<tr><th>ISBN</th><th>Title</th></tr>\n'
+            for (let i = 0; i < results.length; i++) {
+                table += `<tr><td>${results[i].isbn}</td><td>${results[i].title}</td></tr>\n`
+            }
+            table += '</table>'
+            return table
+        }
+        async function lookupISBNs() {
+            const isbns = isbnInput.value.trim().split('\n')
+            if (isbns.length == 0) {
+                return // Forces re-render
+            }
+            isbnInput.rows = 5
+            responsePanel.style.display = 'block'
+            submitButton.classList.remove('is-primary')
+            submitButton.classList.add('is-danger')
+            responsePanelDiv.textContent = 'Please Wait...'
+            submitButton.disabled = true
+            await timeout(0) // Wait for re-render
+            let results = []
+            let successCount = 0
+            try {
+                for (let i = 0; i < isbns.length; i++) {
+                    let result = get(`/${isbns[i]}/title`)
+                    if (result) {
+                        try {
+                            result = JSON.parse(result)
+                        } catch (e) {
+                            result = null
+                        }
+                    }
+                    if (!result) {
+                        result = { isbn: isbns[i], title: '', source: null }
+                    } else {
+                        successCount++
+                    }
+                    results.push(result)
+                    responsePanelDiv.innerHTML = getResultsTable(results)
+                    if (i != isbns.length - 1) {
+                        responsePanelDiv.innerHTML += '<p>Loading more...</p>'
+                    }
+                    await timeout(0) // Wait for re-render
+                }
+                if ((successCount / (isbns.length / 2)) < 0.75) { // Less than 75% is a fail
+                    responsePanel.className = "message is-danger"
+                }
+            } catch (e) {
+                responsePanel.className = "message is-danger"
+                responsePanelDiv.textContent = e.toString()
+            } finally {
+                submitButton.classList.remove('is-danger')
+                submitButton.classList.add('is-primary')
+                submitButton.disabled = false
+            }
+        }
+    </script>
+</body>
+
+</html>
