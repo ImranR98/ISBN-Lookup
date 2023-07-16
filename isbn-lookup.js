@@ -42,5 +42,8 @@ module.exports.fetchBookTitle = async (isbn, isbnDbKey) => {
   } catch (error) {
     if (isDev) console.error(`Failed to fetch book title from Open Library for ISBN ${isbn}: ${error}`)
   }
+  titles = titles.sort((a, b) => {
+    return b.title.length - a.title.length
+  })
   return titles
 }
