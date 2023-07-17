@@ -54,6 +54,7 @@
         const responsePanel = document.getElementById("responsePanel")
         const responsePanelDiv = document.querySelector("#responsePanel div")
         const submitButton = document.getElementById("submitButton")
+        isbnInput.onclick = () => window.scrollTo(0, 0)
         function get(url) {
             var request = new XMLHttpRequest();
             request.open('GET', url, false);
@@ -76,7 +77,9 @@
             for (let i = 0; i < results.length; i++) {
                 const titles = results[i]
                 const mainTitle = titles[0]
-                const alternativeTitles = titles.slice(1)
+                const alternativeTitles = titles.slice(1).filter(t =>
+                    mainTitle.title.trim().toLowerCase().indexOf(t.title.trim().toLowerCase()) < 0
+                )
                 table += `<tr><td>${mainTitle.isbn
                     }</td><td>${mainTitle.title
                     }</td><td>${alternativeTitles.map(r => r.title).join(', ')
