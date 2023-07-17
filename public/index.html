@@ -109,11 +109,13 @@
                         try {
                             titles = JSON.parse(titles)
                         } catch (e) {
-                            titles = [{ isbn: isbns[i], title: '', source: null }]
+                            titles = []
                         }
                     }
                     if (titles.length > 0) {
                         successCount++
+                    } else {
+                        titles = [{ isbn: isbns[i], title: '', source: null }]
                     }
                     console.log(titles)
                     results.push(titles)
@@ -122,12 +124,12 @@
                         responsePanelDiv.innerHTML += '<p>Loading more...</p>'
                     }
                     window.scrollTo(0, document.body.scrollHeight)
+                    if ((successCount / (isbns.length / 2)) < 0.75) { // Less than 75% is a fail
+                        responsePanel.className = "message is-danger"
+                    } else {
+                        responsePanel.className = "message is-success"
+                    }
                     await timeout(0) // Wait for re-render
-                }
-                if ((successCount / (isbns.length / 2)) < 0.75) { // Less than 75% is a fail
-                    responsePanel.className = "message is-danger"
-                } else {
-                    responsePanel.className = "message is-success"
                 }
             } catch (e) {
                 responsePanel.className = "message is-danger"
