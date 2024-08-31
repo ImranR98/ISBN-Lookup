@@ -32,7 +32,12 @@
                         <div class="field">
                             <label class="label">Enter ISBNs</label>
                             <div class="control">
-                                <textarea class="textarea" id="isbnInput" rows="30"></textarea>
+                                <textarea class="textarea" id="isbnInput" rows="30">9780345409461
+9781416594789
+9781583677773
+9780374157357
+9781250237231
+9780316452502</textarea>
                             </div>
                         </div>
                         <div class="field">
@@ -74,16 +79,23 @@
             })
         }
         function getResultsTable(results) {
-            let table = '<table class="table">\n<tr><th>ISBN</th><th>Title</th><th>Alternative Titles</th></tr>\n'
+            let table = '<table class="table">\n<tr><th>ISBN</th><th>Title</th><th>Alternative Titles</th><th>Authors</th></tr>\n'
             for (let i = 0; i < results.length; i++) {
                 const titles = results[i]
                 const mainTitle = titles[0]
                 const alternativeTitles = titles.slice(1).filter(t =>
                     mainTitle.title.trim().toLowerCase().indexOf(t.title.trim().toLowerCase()) < 0
                 )
-                table += `<tr><td>${mainTitle.isbn
+                const authors = new Set();
+                (titles || []).forEach(title => {
+                  (title.authors || []).forEach(author => {
+                    authors.add(author)
+                  })  
+                })
+                table += `<tr><td ${mainTitle.title.length == 0 ? 'style="color: red;"' : ''}>${mainTitle.isbn
                     }</td><td>${mainTitle.title
                     }</td><td>${alternativeTitles.map(r => r.title).join(', ')
+                    }</td><td>${Array.from(authors).join(', ')
                     }</td></tr>\n`
             }
             table += '</table>'
