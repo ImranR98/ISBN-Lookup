@@ -22,7 +22,8 @@ app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] })
 app.get('/:isbn/title', async (req, res) => {
   try {
     const result = await isbnLookup.fetchBookTitle(req.params.isbn, process.env.ISBNDB_API_KEY)
-    console.log(`Request for ISBN '${req.params.isbn}' from IP '${req.ip}': ${result.length} results.`)
+    const ip = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.ip
+    console.log(`Request for ISBN '${req.params.isbn}' from IP '${ip}': ${result.length} results.`)
     res.status(result.length > 0 ? 200 : 204).send(result)
   } catch (error) {
     console.error(error)
