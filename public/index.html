@@ -4,18 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+    <meta name="description" content="ISBN Lookup - Find Book Title and Author by ISBN" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
     <style>
-        @media (prefers-color-scheme: dark) {
-
-            html,
-            body {
-                background-color: #222;
-                color: #fff;
-            }
-
-            .label {
-                color: #fff;
+        textarea {
+            field-sizing: content;
+        }
+        @media (prefers-color-scheme: light) {
+            .bottom-link {
+                color: hsl(0, 0%, 29%) !important;
             }
         }
     </style>
@@ -24,15 +21,23 @@
 </head>
 
 <body>
+    <section class="hero">
+        <div class="hero-body">
+            <div class="container">
+                <h1 class="title has-text-centered">ISBN Lookup</h1>
+            </div>
+        </div>
+    </section>
     <section class="section">
         <div class="container">
             <div class="columns is-centered">
                 <div class="column is-half">
                     <form onsubmit="event.preventDefault(); lookupISBNs()">
                         <div class="field">
-                            <label class="label">Enter ISBNs</label>
-                            <div class="control">
-                                <textarea class="textarea" id="isbnInput" rows="30">9780345409461
+                            <!-- <h1 class="title has-text-centered">ISBN Lookup</h1> -->
+                            <label class="label" for="isbnInput">Enter ISBNs</label>
+                            <div class="control grow-wrap">
+                                <textarea class="textarea" id="isbnInput" rows="20">9780345409461
 9781416594789
 9781583677773
 9780374157357
@@ -42,24 +47,34 @@
                         </div>
                         <div class="field">
                             <div class="control button-container">
-                                <button id="submitButton" class="button is-primary is-fullwidth"
+                                <button id="submitButton" class="button is-link is-fullwidth"
                                     type="submit">Lookup</button>
                             </div>
                         </div>
                     </form>
                     <article id="responsePanel" class="message is-success" style="display: none; margin-top: 1rem;">
-                        <div class="message-body"></div>
+                        <div class="message-body table-container"></div>
                     </article>
+                </div>
+            </div>
+        </div>
+    </section>
+    <section class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <div class="column is-half has-text-centered">
+                    <a class="has-text-grey-light is-underlined is-family-monospace has-text-weight-semibold bottom-link"
+                        href="https://github.com/ImranR98/ISBN-Lookup" target="_blank">Source Code</a>
                 </div>
             </div>
         </div>
     </section>
 
     <script>
-        const isbnInput = document.getElementById("isbnInput")
-        const responsePanel = document.getElementById("responsePanel")
-        const responsePanelDiv = document.querySelector("#responsePanel div")
-        const submitButton = document.getElementById("submitButton")
+        const isbnInput = document.getElementById('isbnInput')
+        const responsePanel = document.getElementById('responsePanel')
+        const responsePanelDiv = document.querySelector('#responsePanel div')
+        const submitButton = document.getElementById('submitButton')
         isbnInput.onclick = () => window.scrollTo(0, 0)
         function get(url) {
             var request = new XMLHttpRequest();
@@ -88,9 +103,9 @@
                 )
                 const authors = new Set();
                 (titles || []).forEach(title => {
-                  (title.authors || []).forEach(author => {
-                    authors.add(author)
-                  })  
+                    (title.authors || []).forEach(author => {
+                        authors.add(author)
+                    })
                 })
                 table += `<tr><td ${mainTitle.title.length == 0 ? 'style="color: red;"' : ''}>${mainTitle.isbn
                     }</td><td>${mainTitle.title
@@ -102,8 +117,14 @@
             return table
         }
         async function lookupISBNs() {
-            const isbns = isbnInput.value.trim().split('\n')
+            responsePanel.style.display = 'none'
+            responsePanel.className = 'message is-success'
+            const isbns = isbnInput.value.split('\n').map(e => e.trim()).filter(e => e.length > 0)
+            await timeout(10) // Wait for re-render
             if (isbns.length == 0) {
+                responsePanel.className = 'message is-danger'
+                responsePanel.style.display = 'block'
+                responsePanelDiv.textContent = 'No input.'
                 return // Forces re-render
             }
             window.scrollTo(0, document.body.scrollHeight)
@@ -112,7 +133,7 @@
             submitButton.classList.add('is-danger')
             responsePanelDiv.textContent = 'Please Wait...'
             submitButton.disabled = true
-            await timeout(0) // Wait for re-render
+            await timeout(10) // Wait for re-render
             let results = []
             let successCount = 0
             try {
@@ -138,14 +159,14 @@
                     }
                     window.scrollTo(0, document.body.scrollHeight)
                     if ((successCount / (isbns.length / 2)) < 0.75) { // Less than 75% is a fail
-                        responsePanel.className = "message is-danger"
+                        responsePanel.className = 'message is-danger'
                     } else {
-                        responsePanel.className = "message is-success"
+                        responsePanel.className = 'message is-success'
                     }
-                    await timeout(0) // Wait for re-render
+                    await timeout(10) // Wait for re-render
                 }
             } catch (e) {
-                responsePanel.className = "message is-danger"
+                responsePanel.className = 'message is-danger'
                 responsePanelDiv.textContent = e.toString()
             } finally {
                 submitButton.classList.remove('is-danger')
