@@ -32,6 +32,9 @@ async function fetchBookTitles(isbnList) {
   for (const isbn of isbnList) {
     const res = (await isbnLookup.fetchBookTitle(isbn, process.env.ISBNDB_API_KEY))
     bookTitles[isbn] = res && res[0] ? res[0].title : null;
+    if (bookTitles[isbn]) {
+      console.log(isbn, '|', bookTitles[isbn])
+    }
   }
   return bookTitles;
 }
