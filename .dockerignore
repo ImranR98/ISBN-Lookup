@@ -2,3 +2,12 @@ node_modules/
 .env
 test-codes.txt
 .git/
+venv/
+input.xlsx
+output.xlsx
+.~*.xlsx#
+__pycache__/
+build/
+dist/
+*.spec
+excel_desktop_ui/

@@ -1,3 +1,11 @@
 node_modules/
 .env
 test-codes.xlsx
+venv/
+input.xlsx
+output.xlsx
+.~*.xlsx#
+__pycache__/
+build/
+dist/
+*.spec
