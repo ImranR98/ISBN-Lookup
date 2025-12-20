@@ -10,4 +10,4 @@ __pycache__/
 build/
 dist/
 *.spec
-excel_desktop_ui/
+build_config.py

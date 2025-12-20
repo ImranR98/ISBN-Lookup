@@ -1,6 +1,6 @@
 node_modules/
 .env
-test-codes.xlsx
+test-codes.txt
 venv/
 input.xlsx
 output.xlsx
@@ -9,3 +9,4 @@ __pycache__/
 build/
 dist/
 *.spec
+build_config.py

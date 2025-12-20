@@ -160,8 +160,6 @@ class ISBNProcessor:
             
             # Sleep in small increments to check for stop signal
             for _ in range(self.interval * 10):
-                if not self.running:
-                    break
                 time.sleep(0.1)
         
         print("Stopped.")
@@ -173,8 +171,8 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("ISBN Lookup Excel Desktop UI")
-        self.root.geometry("800x800")
-        self.root.minsize(800, 800)
+        self.root.geometry("800x840")
+        self.root.minsize(800, 760)
         
         # Configure grid weights for responsiveness
         root.grid_columnconfigure(1, weight=1)
