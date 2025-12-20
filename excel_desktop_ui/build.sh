@@ -80,7 +80,7 @@ build_platform() {
     # Run the builder container
     if [ "$platform" = "linux" ]; then
         docker run -v "$SCRIPT_DIR:/src/" --rm "isbn_lookup_excel_desktop_ui_builder_$platform" \
-            -c "cd /src && pyinstaller --onefile --windowed --add-data 'build_config.py:.' isbn_lookup_excel_desktop_ui.py"
+            -c "cd /src && pyinstaller --onefile --windowed --add-data 'build_config.py:.' isbn_lookup_excel_desktop_ui.py && { rm -r /src/build && chmod 777 /src/dist/* 2>/dev/null || :; }"
         
         # Copy the executable to dist directory
         if [ -f "dist/isbn_lookup_excel_desktop_ui" ]; then
@@ -89,7 +89,7 @@ build_platform() {
         fi
     else
         docker run -v "$SCRIPT_DIR:/src/" --rm "isbn_lookup_excel_desktop_ui_builder_$platform" \
-            -c "cd /src && wine pyinstaller --onefile --windowed --add-data 'build_config.py:.' isbn_lookup_excel_desktop_ui.py"
+            -c "cd /src && wine pyinstaller --onefile --windowed --add-data 'build_config.py:.' isbn_lookup_excel_desktop_ui.py && { rm -r /src/build && chmod 777 /src/dist/* 2>/dev/null || :; }"
         
         # Copy the executable to dist directory
         if [ -f "dist/isbn_lookup_excel_desktop_ui.exe" ]; then
