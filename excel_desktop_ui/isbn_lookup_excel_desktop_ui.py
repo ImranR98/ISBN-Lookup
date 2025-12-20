@@ -173,8 +173,8 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("ISBN Lookup Excel Desktop UI")
-        self.root.geometry("800x760")
-        self.root.minsize(600, 760)
+        self.root.geometry("800x800")
+        self.root.minsize(800, 800)
         
         # Configure grid weights for responsiveness
         root.grid_columnconfigure(1, weight=1)
