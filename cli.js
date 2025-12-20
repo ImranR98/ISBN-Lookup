@@ -6,6 +6,7 @@ const isbnLookup = require('./isbn-lookup')
 
 // Get the input file name from command-line arguments
 const inputFile = process.argv[2];
+const ISBNDB_API_KEY = process.argv[3];
 
 // Throw an error if the input file is not specified or is not a valid file
 if (!inputFile || !fs.existsSync(inputFile)) {
@@ -30,7 +31,7 @@ if (inputFile.endsWith('.txt')) {
 async function fetchBookTitles(isbnList) {
   const bookTitles = {};
   for (const isbn of isbnList) {
-    const res = (await isbnLookup.fetchBookTitle(isbn, process.env.ISBNDB_API_KEY))
+    const res = (await isbnLookup.fetchBookTitle(isbn, ISBNDB_API_KEY || process.env.ISBNDB_API_KEY))
     bookTitles[isbn] = res && res[0] ? res[0].title : null;
     if (bookTitles[isbn]) {
       console.log(isbn, '|', bookTitles[isbn])

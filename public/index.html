@@ -15,6 +15,9 @@
                 color: hsl(0, 0%, 29%) !important;
             }
         }
+        .mt1 {
+            margin-top: 1rem;
+        }
     </style>
     <!-- ANALYTICS_SCRIPT_PLACEHOLDER -->
     <title>ISBN Lookup</title>
@@ -34,7 +37,6 @@
                 <div class="column is-half">
                     <form onsubmit="event.preventDefault(); lookupISBNs()">
                         <div class="field">
-                            <!-- <h1 class="title has-text-centered">ISBN Lookup</h1> -->
                             <label class="label" for="isbnInput">Enter ISBNs</label>
                             <div class="control grow-wrap">
                                 <textarea class="textarea" id="isbnInput" rows="20">9780345409461
@@ -44,6 +46,14 @@
 9781250237231
 9780316452502</textarea>
                             </div>
+                        </div>
+                        <div class="field mt1">
+                            <label class="label" for="apiKeyInput">ISBNDB API Key (Optional)</label>
+                            <div class="control">
+                                <input class="input" type="text" id="apiKeyInput" 
+                                       placeholder="xxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                            </div>
+                            <p class="help">If you have an <a href="https://isbndb.com/" target="_blank">ISBNDB</a> API key, enter it here for better results.</p>
                         </div>
                         <div class="field">
                             <div class="control button-container">
@@ -72,6 +82,7 @@
 
     <script>
         const isbnInput = document.getElementById('isbnInput')
+        const apiKeyInput = document.getElementById('apiKeyInput')
         const responsePanel = document.getElementById('responsePanel')
         const responsePanelDiv = document.querySelector('#responsePanel div')
         const submitButton = document.getElementById('submitButton')
@@ -120,6 +131,7 @@
             responsePanel.style.display = 'none'
             responsePanel.className = 'message is-success'
             const isbns = isbnInput.value.split('\n').map(e => e.trim()).filter(e => e.length > 0)
+            const apiKey = apiKeyInput.value.trim()
             await timeout(10) // Wait for re-render
             if (isbns.length == 0) {
                 responsePanel.className = 'message is-danger'
@@ -138,7 +150,11 @@
             let successCount = 0
             try {
                 for (let i = 0; i < isbns.length; i++) {
-                    let titles = get(`/${isbns[i]}/title`) || []
+                    let url = `/${isbns[i]}/title`
+                    if (apiKey) {
+                        url += `?ISBNDB_API_KEY=${encodeURIComponent(apiKey)}`
+                    }
+                    let titles = get(url) || []
                     if (titles) {
                         try {
                             titles = JSON.parse(titles)

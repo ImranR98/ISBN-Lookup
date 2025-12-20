@@ -23,7 +23,7 @@ app.get('/:isbn/title', async (req, res) => {
   const ip = req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || req.ip
   const logString = `${(new Date()).toISOString()}: Request for ISBN '${req.params.isbn}' from IP '${ip}'`
   try { 
-    const result = await isbnLookup.fetchBookTitle(req.params.isbn, process.env.ISBNDB_API_KEY)
+    const result = await isbnLookup.fetchBookTitle(req.params.isbn, req.query.ISBNDB_API_KEY || process.env.ISBNDB_API_KEY)
     console.log(`${logString}: ${result.length} results.`)
     res.status(result.length > 0 ? 200 : 204).send(result)
   } catch (error) {
