@@ -10,371 +10,471 @@ import io
 from queue import Queue, Empty
 import json
 from datetime import datetime
+from typing import Optional, Dict, Any, Tuple, List
+from dataclasses import dataclass
 
-# TODO:
-# 1. When saving the output file, first check if it was modified in the interim and if so then take up any added titles
-# 2. General review/audit for LLM madness and my own understanding
-
-# Default values that can be overridden at build time
-# These will be replaced by build script
 try:
     from build_config import DEFAULT_API_HOST, DEFAULT_API_KEY
 except ImportError:
     DEFAULT_API_HOST = "http://localhost:8080"
     DEFAULT_API_KEY = ""
 
-class ISBNProcessor:
-    def __init__(self, input_file="input.xlsx", output_file="output.xlsx", 
-                 interval=0, api_key=None, api_host=None, monitor_file_changes=True):
-        self.input_file = input_file
-        self.output_file = output_file
-        self.interval = interval
-        self.api_key = api_key if api_key is not None else DEFAULT_API_KEY
-        self.api_host = api_host if api_host is not None else DEFAULT_API_HOST.rstrip('/')
-        self.monitor_file_changes = monitor_file_changes
-        self.running = False
-        self.session = requests.Session()
-        self.last_modified = None
-        
-        # Create input if missing
-        try:
-            pd.read_excel(input_file)
-        except Exception:
-            pd.DataFrame(columns=['isbn']).to_excel(input_file, index=False)
-            print(f"Created {input_file}")
+@dataclass
+class ProcessingConfig:
+    """Configuration for ISBN processing"""
+    input_file: str = "input.xlsx"
+    output_file: str = "output.xlsx"
+    interval_seconds: int = 0
+    api_key: Optional[str] = None
+    api_host: str = DEFAULT_API_HOST.rstrip('/')
+    monitor_file_changes: bool = True
+
+@dataclass
+class ProcessingStats:
+    """Statistics for a processing run"""
+    total_rows: int = 0
+    titles_fetched: int = 0
+    titles_failed: int = 0
+    start_time: Optional[str] = None
+
+def normalize_isbn_string(isbn_value: Any) -> str:
+    """Convert ISBN to standardized string format"""
+    if pd.isna(isbn_value):
+        return ""
     
-    def get_title(self, isbn):
-        # Convert to string and clean up
-        if pd.isna(isbn):
-            return "not found (empty)"
+    isbn_str = str(isbn_value).strip()
+    
+    try:
+        if '.' in isbn_str:
+            num = float(isbn_str)
+            if num.is_integer():
+                isbn_str = str(int(num))
+        elif isbn_str.endswith('.0'):
+            isbn_str = isbn_str[:-2]
+    except (ValueError, AttributeError):
+        pass
+    
+    return isbn_str
+
+def fetch_book_title_from_api(
+    isbn: Any,
+    api_host: str,
+    api_key: Optional[str],
+    session: requests.Session
+) -> str:
+    """Fetch book title from ISBN using API"""
+    if pd.isna(isbn):
+        return "not found (empty)"
+    
+    isbn_str = normalize_isbn_string(isbn)
+    if not isbn_str:
+        return "not found (empty)"
+    
+    try:
+        url = f"{api_host}/{isbn_str}/title"
+        headers = {}
+        if api_key:
+            headers['ISBNDB_API_KEY'] = api_key
         
-        isbn_str = str(isbn).strip()
-        if not isbn_str:
-            return "not found (empty)"
+        response = session.get(url, headers=headers, timeout=300)
         
-        # Handle special cases for numeric ISBNs
+        if not 200 <= response.status_code <= 299:
+            return f"not found ({response.status_code})"
+        
         try:
-            # If it's a float (e.g., 9783161484100.0), convert to int first to remove decimal
-            if isinstance(isbn, float) and isbn.is_integer():
-                isbn_str = str(int(isbn))
-            # If it's an int, convert directly
-            elif isinstance(isbn, (int, float)):
-                isbn_str = str(int(isbn)) if isbn.is_integer() else str(isbn)
-        except (ValueError, AttributeError):
-            pass
-        
-        try:
-            url = f"{self.api_host}/{isbn_str}/title"
-            headers = {}
-            if self.api_key:
-                headers['ISBNDB_API_KEY'] = self.api_key
-            
-            response = self.session.get(url, headers=headers, timeout=300)
-            
-            if response.status_code < 200 or response.status_code > 299:
-                return f"not found ({response.status_code})"
-            
-            try:
-                data = response.json()
-            except Exception:
-                return "not found"
-            
+            data = response.json()
             if isinstance(data, list) and data:
                 item = data[0]
                 if isinstance(item, dict):
                     title = item.get('title')
                     if title:
                         return title
-                    else:
-                        return "not found"
-                else:
-                    return str(item)
+            return "not found"
+        except ValueError:
+            return "not found"
+            
+    except Exception as e:
+        print(f"API error for ISBN {isbn_str}: {e}")
+        return "not found (error)"
+
+def has_file_changed(filepath: str, last_modified_time: Optional[float]) -> Tuple[bool, Optional[float]]:
+    """Check if a file has been modified since last check"""
+    try:
+        current_modified_time = os.path.getmtime(filepath)
+        if last_modified_time is None:
+            return True, current_modified_time
+        elif current_modified_time != last_modified_time:
+            return True, current_modified_time
+        return False, last_modified_time
+    except Exception as e:
+        print(f"Error checking file modification: {e}")
+        return True, last_modified_time
+
+def find_isbn_column_in_dataframe(df: pd.DataFrame) -> Optional[str]:
+    """Find the ISBN column in a DataFrame (case-insensitive)"""
+    for column in df.columns:
+        if str(column).strip().lower() == 'isbn':
+            return column
+    return None
+
+def load_existing_titles_from_output_file(
+    output_filepath: str,
+    isbn_column_name: str
+) -> Dict[str, str]:
+    """Load previously fetched titles from output file"""
+    existing_titles = {}
+    
+    try:
+        output_df = pd.read_excel(output_filepath, dtype=str)
+        
+        if 'title' in output_df.columns and isbn_column_name in output_df.columns:
+            output_df[isbn_column_name] = output_df[isbn_column_name].apply(normalize_isbn_string)
+            
+            for _, row in output_df.iterrows():
+                isbn_val = row[isbn_column_name]
+                if pd.notna(isbn_val) and str(isbn_val).strip():
+                    isbn_key = str(isbn_val).strip()
+                    existing_titles[isbn_key] = row.get('title', '')
+                    
+    except Exception:
+        pass
+    
+    return existing_titles
+
+def process_single_row(
+    row: pd.Series,
+    isbn_column_name: str,
+    api_host: str,
+    api_key: Optional[str],
+    session: requests.Session,
+    existing_titles_cache: Dict[str, str],
+    stats: ProcessingStats
+) -> pd.Series:
+    """Process a single row and fetch title if needed"""
+    isbn_value = row[isbn_column_name] if isbn_column_name in row else None
+    isbn_normalized = normalize_isbn_string(isbn_value)
+    
+    if pd.isna(isbn_value) or not isbn_normalized:
+        title = "not found (empty)"
+        print(f"  ISBN: [empty] -> {title}")
+    else:
+        if isbn_normalized in existing_titles_cache:
+            title = existing_titles_cache[isbn_normalized]
+            if isbn_normalized == 'bad':
+                print(existing_titles_cache[isbn_normalized])
+        else:
+            title = fetch_book_title_from_api(isbn_value, api_host, api_key, session)
+            if "not found" in title:
+                stats.titles_failed += 1
             else:
-                return "not found"
-                
-        except Exception as e:
-            print(e)
-            return "not found (error)"
+                stats.titles_fetched += 1
+            print(f"  ISBN: {isbn_normalized} -> {title}")
     
-    def normalize_isbn(self, isbn_value):
-        """Convert ISBN to standardized string format"""
-        if pd.isna(isbn_value):
-            return ""
-        
-        # Convert to string
-        isbn_str = str(isbn_value).strip()
-        
-        # Handle numeric ISBNs
-        try:
-            # If it looks like a float with .0, convert to int string
-            if '.' in isbn_str:
-                try:
-                    # Try to convert to float and check if it's an integer
-                    num = float(isbn_str)
-                    if num.is_integer():
-                        isbn_str = str(int(num))
-                except (ValueError, AttributeError):
-                    pass
-            # Remove any trailing .0 that might have been added
-            if isbn_str.endswith('.0'):
-                isbn_str = isbn_str[:-2]
-        except (ValueError, AttributeError):
-            pass
-        
-        # Remove any non-digit characters except 'X' (for ISBN-10 check digit)
-        # But keep the original if it has special formatting
-        return isbn_str
+    result_row = row.copy()
+    result_row['title'] = title
+    return result_row
+
+def print_processing_summary(stats: ProcessingStats, output_filepath: str) -> None:
+    """Print summary of processing results"""
+    current_time = datetime.now().strftime("%H:%M:%S")
+    summary_msg = f"\n[{current_time}] Summary:"
     
-    def check_file_changed(self):
-        """Check if input file has been modified"""
-        try:
-            current_modified = os.path.getmtime(self.input_file)
-            if self.last_modified is None:
-                self.last_modified = current_modified
-                return True  # First run
-            elif current_modified != self.last_modified:
-                self.last_modified = current_modified
-                return True
-            return False
-        except Exception as e:
-            print(e)
-            return True
+    if stats.titles_fetched:
+        summary_msg += f"\n  Successfully fetched: {stats.titles_fetched} titles"
+    if stats.titles_failed:
+        summary_msg += f"\n  Failed to fetch: {stats.titles_failed} titles"
     
-    def process(self):
+    summary_msg += f"\n  Total rows: {stats.total_rows}"
+    summary_msg += f"\n  Saved to: {output_filepath}"
+    print(summary_msg)
+
+def process_isbn_file(
+    config: ProcessingConfig,
+    session: requests.Session,
+    last_modified_time: Optional[float]
+) -> Tuple[Optional[float], ProcessingStats]:
+    """Main function to process ISBN file and fetch titles"""
+    stats = ProcessingStats(start_time=datetime.now().strftime("%H:%M:%S"))
+    
+    # Check if file has changed
+    if config.monitor_file_changes:
+        file_changed, new_modified_time = has_file_changed(
+            config.input_file, last_modified_time
+        )
+        if not file_changed:
+            return last_modified_time, stats
+        last_modified_time = new_modified_time
+    
+    # Read input file
+    try:
+        input_df = pd.read_excel(config.input_file, dtype=str)
+    except Exception as e:
+        print(f"Error reading with dtype=str: {e}, trying default read")
+        input_df = pd.read_excel(config.input_file)
+    
+    # Find ISBN column
+    isbn_column = find_isbn_column_in_dataframe(input_df)
+    if not isbn_column:
+        print("Error: No 'isbn' column found in input file")
+        return last_modified_time, stats
+    
+    # Normalize ISBNs in input
+    input_df[isbn_column] = input_df[isbn_column].apply(normalize_isbn_string)
+
+    # Load existing titles from output file
+    existing_titles = load_existing_titles_from_output_file(
+        config.output_file, isbn_column
+    )
+    
+    print(f"\n[{stats.start_time}] Processing...")
+    
+    # Process each row
+    processed_rows = []
+    for _, row in input_df.iterrows():
+        
+        processed_row = process_single_row(
+            row, isbn_column, config.api_host, config.api_key,
+            session, existing_titles, stats
+        )
+        processed_rows.append(processed_row)
+
+    # Account for manual fixes to "not found" items the user may have made in the output file while processing was ongoing
+    existing_titles_final = load_existing_titles_from_output_file(
+        config.output_file, isbn_column
+    )
+    for i, row in enumerate(processed_rows):
+        isbn_val = row[isbn_column] if isbn_column in row else None
+        isbn_normalized = normalize_isbn_string(isbn_val)
+        if isbn_normalized in existing_titles_final:
+            final_title = existing_titles_final[isbn_normalized]
+            current_title = row.get('title', '')
+            if (final_title != current_title and "not found" not in final_title.lower()):
+                processed_rows[i]['title'] = final_title
+                print(f"  Note: title manually entered mid-process for ISBN {isbn_normalized}: {final_title}")
+    
+    # Create and save output DataFrame
+    output_df = pd.DataFrame(processed_rows)
+    output_df.to_excel(config.output_file, index=False)
+    
+    stats.total_rows = len(output_df)
+    print_processing_summary(stats, config.output_file)
+    
+    return last_modified_time, stats
+
+class ISBNProcessor:
+    """Manages ISBN processing with state"""
+    
+    def __init__(self, config: ProcessingConfig):
+        self.config = config
+        self.running = False
+        self.session = requests.Session()
+        self.last_modified_time = None
+
         try:
-            # Check if file has changed if monitoring is enabled
-            if self.monitor_file_changes and not self.check_file_changed():
-                return  # No changes, skip processing
+            pd.read_excel(config.input_file)
+        except Exception:
+            pd.DataFrame(columns=['isbn']).to_excel(config.input_file, index=False)
+            print(f"Created input file at: {config.input_file}")
             
-            # Read input with dtype=str to prevent automatic type conversion
-            try:
-                df = pd.read_excel(self.input_file, dtype=str)  # Read everything as string
-            except Exception as e:
-                print(f"Error reading with dtype=str: {e}, trying default read")
-                df = pd.read_excel(self.input_file)
-            
-            # Find isbn column (case-insensitive)
-            isbn_col = None
-            for col in df.columns:
-                if str(col).strip().lower() == 'isbn':
-                    isbn_col = col
-                    break
-            
-            if not isbn_col:
-                print("Error: No 'isbn' column found in input file")
-                return
-            
-            # Ensure the ISBN column is treated as string
-            if isbn_col in df.columns:
-                df[isbn_col] = df[isbn_col].apply(self.normalize_isbn)
-            
-            # Load existing output if it exists
-            existing_titles = {}
-            try:
-                # Read output file as strings to match format
-                out_df = pd.read_excel(self.output_file, dtype=str)
-                if 'title' in out_df.columns and isbn_col in out_df.columns:
-                    # Normalize ISBNs in output for comparison
-                    out_df[isbn_col] = out_df[isbn_col].apply(self.normalize_isbn)
-                    for idx, row in out_df.iterrows():
-                        isbn_val = row[isbn_col]
-                        if pd.notna(isbn_val) and str(isbn_val).strip():
-                            isbn_key = str(isbn_val).strip()
-                            existing_titles[isbn_key] = row.get('title', '')
-            except Exception as e:
-                pass  # File doesn't exist or is corrupted
-            
-            # Process rows
-            results = []
-            fetched = 0
-            failed = 0
-            current_time = datetime.now().strftime("%H:%M:%S")
-            
-            print(f"\n[{current_time}] Processing...")
-            
-            for idx, row in df.iterrows():
-                isbn_val = row[isbn_col] if isbn_col in row else None
-                
-                if pd.isna(isbn_val) or not str(isbn_val).strip():
-                    title = "not found (empty)"
-                    print(f"  ISBN: [empty] -> {title}")
-                else:
-                    # Normalize ISBN for comparison
-                    isbn_key = self.normalize_isbn(isbn_val)
-                    # Check existing titles first
-                    if isbn_key in existing_titles:
-                        title = existing_titles[isbn_key]
-                        # Don't print for cached results to avoid spam
-                    else:
-                        title = self.get_title(isbn_val)
-                        if "not found" in title:
-                            failed += 1
-                        else:
-                            fetched += 1
-                        print(f"  ISBN: {isbn_key} -> {title}")
-                
-                new_row = row.copy()
-                new_row['title'] = title
-                results.append(new_row)
-            
-            # Create output DataFrame
-            out_df = pd.DataFrame(results)
-            
-            # Save
-            out_df.to_excel(self.output_file, index=False)
-            
-            summary_msg = f"\n[{current_time}] Summary:"
-            if fetched:
-                summary_msg += f"\n  Successfully fetched: {fetched} titles"
-            if failed:
-                summary_msg += f"\n  Failed to fetch: {failed} titles"
-            summary_msg += f"\n  Total rows: {len(out_df)}"
-            summary_msg += f"\n  Saved to: {self.output_file}"
-            print(summary_msg)
-            
+    def run_single_processing_cycle(self) -> ProcessingStats:
+        """Execute a single processing cycle"""
+        try:
+            self.last_modified_time, stats = process_isbn_file(
+                self.config, self.session, self.last_modified_time
+            )
+            return stats
         except Exception as e:
             current_time = datetime.now().strftime("%H:%M:%S")
             print(f"[{current_time}] Error processing file: {e}")
+            return ProcessingStats()
     
-    def run(self):
+    def run_continuously(self) -> None:
+        """Run processing continuously with optional interval"""
         self.running = True
-        print("Running...")
-        print(f"API Host: {self.api_host}")
-        if self.api_key:
-            print(f"Using API key: {self.api_key[:8]}...")
-        print(f"Interval: {self.interval} seconds (0 = disabled)")
-        print(f"File change monitoring: {'Enabled' if self.monitor_file_changes else 'Disabled'}")
+        print("Running ISBN processor...")
+        print(f"API Host: {self.config.api_host}")
+        if self.config.api_key:
+            print(f"Using API key: {self.config.api_key[:8]}...")
+        print(f"Interval: {self.config.interval_seconds} seconds (0 = disabled)")
+        print(f"File change monitoring: {'Enabled' if self.config.monitor_file_changes else 'Disabled'}")
         print()
         
         while self.running:
-            self.process()
+            self.run_single_processing_cycle()
+            
             if not self.running:
                 break
-
-            if self.interval <= 0:
+                
+            if self.config.interval_seconds <= 0:
                 time.sleep(0.1)
-                if not self.running:
-                    break
             else:
-                # Sleep in small increments to check for stop signal
-                for _ in range(self.interval * 10):
+                # Sleep in small increments to allow for stop signal
+                for _ in range(self.config.interval_seconds * 10):
                     time.sleep(0.1)
                     if not self.running:
                         break
         
-        print("Stopped.")
+        print("Processor stopped.")
     
-    def stop(self):
+    def stop(self) -> None:
+        """Stop the processor"""
         self.running = False
 
-class App:
+class ISBNLookupApp:
+    """Tkinter GUI application for ISBN lookup"""
+    
     def __init__(self, root):
         self.root = root
         self.root.title("ISBN Lookup Excel Desktop UI")
         self.root.geometry("800x900")
         self.root.minsize(800, 900)
         
-        # Configure grid weights for responsiveness
-        root.grid_columnconfigure(1, weight=1)
-        root.grid_columnconfigure(2, weight=0)
-        root.grid_rowconfigure(7, weight=1)
-        
-        # Create a main frame for better organization
-        main_frame = ttk.Frame(root, padding="10")
-        main_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
-        
-        # Configure main_frame grid
-        main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_rowconfigure(7, weight=1)
-        
-        # Input file
-        ttk.Label(main_frame, text="Input File:").grid(row=0, column=0, sticky="w", pady=5)
-        self.input_var = tk.StringVar(value="input.xlsx")
-        self.input_entry = ttk.Entry(main_frame, textvariable=self.input_var)
-        self.input_entry.grid(row=0, column=1, sticky="ew", padx=(5, 0), pady=5)
-        ttk.Button(main_frame, text="Browse...", width=10, 
-                  command=lambda: self.browse_file(self.input_var)).grid(row=0, column=2, padx=(5, 0), pady=5)
-        
-        # Output file
-        ttk.Label(main_frame, text="Output File:").grid(row=1, column=0, sticky="w", pady=5)
-        self.output_var = tk.StringVar(value="output.xlsx")
-        self.output_entry = ttk.Entry(main_frame, textvariable=self.output_var)
-        self.output_entry.grid(row=1, column=1, sticky="ew", padx=(5, 0), pady=5)
-        ttk.Button(main_frame, text="Browse...", width=10,
-                  command=lambda: self.browse_file(self.output_var, save=True)).grid(row=1, column=2, padx=(5, 0), pady=5)
-        
-        # API Host - Use DEFAULT_API_HOST as default
-        ttk.Label(main_frame, text="API Host:").grid(row=2, column=0, sticky="w", pady=5)
-        self.host_var = tk.StringVar(value=DEFAULT_API_HOST)
-        ttk.Entry(main_frame, textvariable=self.host_var).grid(row=2, column=1, columnspan=2, sticky="ew", padx=(5, 0), pady=5)
-        
-        # API Key - Use DEFAULT_API_KEY as default
-        ttk.Label(main_frame, text="API Key:").grid(row=3, column=0, sticky="w", pady=5)
-        self.key_var = tk.StringVar(value=DEFAULT_API_KEY)
-        self.key_entry = ttk.Entry(main_frame, textvariable=self.key_var, show="*")
-        self.key_entry.grid(row=3, column=1, sticky="ew", padx=(5, 0), pady=5)
-        
-        # Show/Hide API Key button
-        self.show_key_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(main_frame, text="Show", variable=self.show_key_var,
-                       command=self.toggle_key_visibility).grid(row=3, column=2, padx=(5, 0), pady=5, sticky="w")
-        
-        # Interval
-        ttk.Label(main_frame, text="Interval (seconds):").grid(row=4, column=0, sticky="w", pady=5)
-        self.interval_var = tk.StringVar(value="0")
-        interval_entry = ttk.Entry(main_frame, textvariable=self.interval_var, width=10)
-        interval_entry.grid(row=4, column=1, sticky="w", padx=(5, 0), pady=5)
-        ttk.Label(main_frame, text="(0 = disabled)").grid(row=4, column=1, sticky="w", padx=(100, 0), pady=5)
-        
-        # File change monitoring checkbox
-        self.monitor_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(main_frame, text="Monitor input file for changes", 
-                       variable=self.monitor_var).grid(row=5, column=0, columnspan=3, sticky="w", pady=5)
-        
-        # Button frame
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=6, column=0, columnspan=3, pady=15, sticky="ew")
-        button_frame.grid_columnconfigure(0, weight=1)
-        button_frame.grid_columnconfigure(1, weight=1)
-        
-        # Start/Stop buttons
-        self.start_btn = ttk.Button(button_frame, text="Start Processing", command=self.start)
-        self.start_btn.grid(row=0, column=0, padx=(0, 5), sticky="ew")
-        self.stop_btn = ttk.Button(button_frame, text="Stop Processing", command=self.stop, state="disabled")
-        self.stop_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
-        
-        # Status label
-        self.status_var = tk.StringVar(value="Ready")
-        self.status_label = ttk.Label(button_frame, textvariable=self.status_var)
-        self.status_label.grid(row=1, column=0, columnspan=2, pady=(10, 0))
-        
-        # Text area for output
-        text_frame = ttk.LabelFrame(main_frame, text="Processing Log", padding="5")
-        text_frame.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
-        text_frame.grid_columnconfigure(0, weight=1)
-        text_frame.grid_rowconfigure(0, weight=1)
-        
-        self.text = tk.Text(text_frame, height=15, wrap=tk.WORD)
-        self.text.grid(row=0, column=0, sticky="nsew")
-        
-        # Scrollbars
-        text_scrollbar = ttk.Scrollbar(text_frame, orient="vertical", command=self.text.yview)
-        text_scrollbar.grid(row=0, column=1, sticky="ns")
-        self.text.config(yscrollcommand=text_scrollbar.set)
-        
-        text_hscrollbar = ttk.Scrollbar(text_frame, orient="horizontal", command=self.text.xview)
-        text_hscrollbar.grid(row=1, column=0, columnspan=2, sticky="ew")
-        self.text.config(xscrollcommand=text_hscrollbar.set)
-        
-        # Queue for thread-safe GUI updates
         self.queue = Queue()
         self.processor = None
         self.processor_thread = None
         
-        # Start periodic queue check
-        self.check_queue()
+        self._setup_ui()
+        self._setup_window_close_handler()
+        self._start_queue_checking()
+        
+        self._apply_dpi_scaling()
     
-    def browse_file(self, var, save=False):
+    def _apply_dpi_scaling(self) -> None:
+        """Apply DPI scaling for Windows"""
+        try:
+            from ctypes import windll
+            windll.shcore.SetProcessDpiAwareness(1)
+        except:
+            pass
+    
+    def _setup_ui(self) -> None:
+        """Set up the user interface"""
+        self.root.grid_columnconfigure(1, weight=1)
+        self.root.grid_columnconfigure(2, weight=0)
+        self.root.grid_rowconfigure(7, weight=1)
+        
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, columnspan=3, sticky="nsew")
+        main_frame.grid_columnconfigure(1, weight=1)
+        main_frame.grid_rowconfigure(7, weight=1)
+        
+        self._create_file_input_section(main_frame, row=0, label="Input File:",
+                                       default="input.xlsx", var_name="input_var")
+        
+        self._create_file_input_section(main_frame, row=1, label="Output File:",
+                                       default="output.xlsx", var_name="output_var",
+                                       save_mode=True)
+        
+        ttk.Label(main_frame, text="API Host:").grid(row=2, column=0, sticky="w", pady=5)
+        self.host_var = tk.StringVar(value=DEFAULT_API_HOST)
+        ttk.Entry(main_frame, textvariable=self.host_var).grid(
+            row=2, column=1, columnspan=2, sticky="ew", padx=(5, 0), pady=5
+        )
+        
+        self._create_api_key_section(main_frame)
+        
+        self._create_interval_section(main_frame)
+        
+        self.monitor_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(main_frame, text="Monitor input file for changes",
+                       variable=self.monitor_var).grid(
+            row=5, column=0, columnspan=3, sticky="w", pady=5
+        )
+        
+        self._create_control_buttons_and_status(main_frame)
+        
+        self._create_log_text_area(main_frame)
+    
+    def _create_file_input_section(
+        self,
+        parent,
+        row: int,
+        label: str,
+        default: str,
+        var_name: str,
+        save_mode: bool = False
+    ) -> None:
+        """Create a file input section with browse button"""
+        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=5)
+        
+        setattr(self, var_name, tk.StringVar(value=default))
+        entry = ttk.Entry(parent, textvariable=getattr(self, var_name))
+        entry.grid(row=row, column=1, sticky="ew", padx=(5, 0), pady=5)
+        
+        browse_text = "Save As..." if save_mode else "Browse..."
+        browse_command = (lambda: self._browse_file(getattr(self, var_name), save=save_mode))
+        ttk.Button(parent, text=browse_text, width=10,
+                  command=browse_command).grid(row=row, column=2, padx=(5, 0), pady=5)
+    
+    def _create_api_key_section(self, parent) -> None:
+        """Create API key input with show/hide toggle"""
+        ttk.Label(parent, text="API Key:").grid(row=3, column=0, sticky="w", pady=5)
+        self.key_var = tk.StringVar(value=DEFAULT_API_KEY)
+        self.key_entry = ttk.Entry(parent, textvariable=self.key_var, show="*")
+        self.key_entry.grid(row=3, column=1, sticky="ew", padx=(5, 0), pady=5)
+        
+        self.show_key_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(parent, text="Show", variable=self.show_key_var,
+                       command=self._toggle_key_visibility).grid(
+            row=3, column=2, padx=(5, 0), pady=5, sticky="w"
+        )
+    
+    def _create_interval_section(self, parent) -> None:
+        """Create interval input section"""
+        ttk.Label(parent, text="Interval (seconds):").grid(row=4, column=0, sticky="w", pady=5)
+        self.interval_var = tk.StringVar(value="0")
+        interval_entry = ttk.Entry(parent, textvariable=self.interval_var, width=10)
+        interval_entry.grid(row=4, column=1, sticky="w", padx=(5, 0), pady=5)
+        ttk.Label(parent, text="(0 = disabled)").grid(row=4, column=1, sticky="w", padx=(100, 0), pady=5)
+    
+    def _create_control_buttons_and_status(self, parent) -> None:
+        """Create start/stop buttons and status label"""
+        button_frame = ttk.Frame(parent)
+        button_frame.grid(row=6, column=0, columnspan=3, pady=15, sticky="ew")
+        button_frame.grid_columnconfigure(0, weight=1)
+        button_frame.grid_columnconfigure(1, weight=1)
+        
+        self.start_btn = ttk.Button(button_frame, text="Start Processing",
+                                   command=self._start_processing)
+        self.start_btn.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+        
+        self.stop_btn = ttk.Button(button_frame, text="Stop Processing",
+                                  command=self._stop_processing, state="disabled")
+        self.stop_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        
+        self.status_var = tk.StringVar(value="Ready")
+        self.status_label = ttk.Label(button_frame, textvariable=self.status_var)
+        self.status_label.grid(row=1, column=0, columnspan=2, pady=(10, 0))
+    
+    def _create_log_text_area(self, parent) -> None:
+        """Create text area for processing log"""
+        text_frame = ttk.LabelFrame(parent, text="Processing Log", padding="5")
+        text_frame.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
+        text_frame.grid_columnconfigure(0, weight=1)
+        text_frame.grid_rowconfigure(0, weight=1)
+        
+        self.log_text = tk.Text(text_frame, height=15, wrap=tk.WORD)
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+        
+        text_scrollbar = ttk.Scrollbar(text_frame, orient="vertical",
+                                      command=self.log_text.yview)
+        text_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.log_text.config(yscrollcommand=text_scrollbar.set)
+        
+        text_hscrollbar = ttk.Scrollbar(text_frame, orient="horizontal",
+                                       command=self.log_text.xview)
+        text_hscrollbar.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.log_text.config(xscrollcommand=text_hscrollbar.set)
+    
+    def _setup_window_close_handler(self) -> None:
+        """Set up handler for window close event"""
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_closing)
+    
+    def _start_queue_checking(self) -> None:
+        """Start periodic checking of message queue"""
+        self.root.after(100, self._check_queue)
+    
+    def _browse_file(self, variable: tk.StringVar, save: bool = False) -> None:
         """Open file dialog for browsing files"""
         from tkinter import filedialog
         
@@ -389,64 +489,71 @@ class App:
             )
         
         if filename:
-            var.set(filename)
+            variable.set(filename)
     
-    def toggle_key_visibility(self):
+    def _toggle_key_visibility(self) -> None:
+        """Toggle visibility of API key"""
         show = self.show_key_var.get()
         self.key_entry.config(show="" if show else "*")
     
-    def check_queue(self):
-        """Check for messages from threads"""
+    def _check_queue(self) -> None:
+        """Check for messages from processing thread"""
         try:
             while True:
-                msg = self.queue.get_nowait()
-                self.text.insert(tk.END, msg)
-                self.text.see(tk.END)
+                message = self.queue.get_nowait()
+                self.log_text.insert(tk.END, message)
+                self.log_text.see(tk.END)
         except Empty:
             pass
-        self.root.after(100, self.check_queue)
+        self.root.after(100, self._check_queue)
     
-    def log_message(self, message):
-        """Add a message to the text widget via queue"""
+    def _log_message(self, message: str) -> None:
+        """Add a message to the log text widget"""
         self.queue.put(message)
     
-    def start(self):
-        if not self.processor_thread or not self.processor_thread.is_alive():
-            # Validate interval
-            try:
-                interval = int(self.interval_var.get())
-                if interval < 0:
-                    self.log_message("Error: Interval must be 0 or positive\n")
-                    self.status_var.set("Error: Invalid interval")
-                    return
-            except ValueError:
-                self.log_message("Error: Interval must be a number\n")
+    def _start_processing(self) -> None:
+        """Start ISBN processing"""
+        if self.processor_thread and self.processor_thread.is_alive():
+            return
+        
+        # Validate interval
+        try:
+            interval = int(self.interval_var.get())
+            if interval < 0:
+                self._log_message("Error: Interval must be 0 or positive\n")
                 self.status_var.set("Error: Invalid interval")
                 return
-            
-            self.start_btn.config(state="disabled")
-            self.stop_btn.config(state="normal")
-            self.status_var.set("Processing...")
-            
-            # Clear previous output
-            self.text.delete(1.0, tk.END)
-            
-            # Create processor
-            self.processor = ISBNProcessor(
-                input_file=self.input_var.get(),
-                output_file=self.output_var.get(),
-                interval=interval,
-                api_key=self.key_var.get() or None,
-                api_host=self.host_var.get(),
-                monitor_file_changes=self.monitor_var.get()
-            )
-            
-            # Start processor in separate thread
-            self.processor_thread = threading.Thread(target=self._run_processor, daemon=True)
-            self.processor_thread.start()
+        except ValueError:
+            self._log_message("Error: Interval must be a number\n")
+            self.status_var.set("Error: Invalid interval")
+            return
+        
+        # Update UI state
+        self.start_btn.config(state="disabled")
+        self.stop_btn.config(state="normal")
+        self.status_var.set("Processing...")
+        self.log_text.delete(1.0, tk.END)
+        
+        # Create processing config
+        config = ProcessingConfig(
+            input_file=self.input_var.get(),
+            output_file=self.output_var.get(),
+            interval_seconds=interval,
+            api_key=self.key_var.get() or None,
+            api_host=self.host_var.get(),
+            monitor_file_changes=self.monitor_var.get()
+        )
+        
+        # Create and start processor
+        self.processor = ISBNProcessor(config)
+        self.processor_thread = threading.Thread(
+            target=self._run_processor_with_output_redirect,
+            daemon=True
+        )
+        self.processor_thread.start()
     
-    def _run_processor(self):
-        """Wrapper to redirect print output to GUI"""
+    def _run_processor_with_output_redirect(self) -> None:
+        """Run processor with redirected print output to GUI"""
         import builtins
         original_print = builtins.print
         
@@ -455,51 +562,44 @@ class App:
             if kwargs.get('end', '\n') == '\n':
                 text += '\n'
             self.queue.put(text)
-            # Keep original output for debugging
             original_print(*args, **kwargs)
         
         builtins.print = custom_print
         
         try:
-            self.processor.run()
+            self.processor.run_continuously()
         finally:
             builtins.print = original_print
             self.root.after(0, self._on_processor_stop)
     
-    def _on_processor_stop(self):
-        """Called when processor thread stops"""
+    def _on_processor_stop(self) -> None:
+        """Handle processor thread completion"""
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
         self.status_var.set("Ready")
     
-    def stop(self):
+    def _stop_processing(self) -> None:
+        """Stop ISBN processing"""
         if self.processor:
             self.processor.stop()
             self.status_var.set("Stopping...")
-
-if __name__ == "__main__":
-    # Set ttk theme for better appearance
-    try:
-        from ctypes import windll
-        windll.shcore.SetProcessDpiAwareness(1)  # For Windows DPI scaling
-    except:
-        pass
     
+    def _on_window_closing(self) -> None:
+        """Handle window close event"""
+        if self.processor:
+            self.processor.stop()
+        self.root.destroy()
+
+def main() -> None:
+    """Create and run the Tkinter application"""
     root = tk.Tk()
     
     # Set ttk style
     style = ttk.Style()
-    style.theme_use('clam')
     
-    app = App(root)
-    
-    # Handle window close
-    def on_closing():
-        if app.processor:
-            app.processor.stop()
-        root.destroy()
-    
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-    
+    app = ISBNLookupApp(root)
     root.update_idletasks()
     root.mainloop()
+
+if __name__ == "__main__":
+    main()
