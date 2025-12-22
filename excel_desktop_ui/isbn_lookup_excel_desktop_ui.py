@@ -116,11 +116,11 @@ class ISBNProcessor:
             existing_titles = {}
             try:
                 out_df = pd.read_excel(self.output_file)
-                if 'book title' in out_df.columns and isbn_col in out_df.columns:
+                if 'title' in out_df.columns and isbn_col in out_df.columns:
                     for idx, row in out_df.iterrows():
                         isbn_val = row[isbn_col]
                         if pd.notna(isbn_val):
-                            existing_titles[str(isbn_val).strip()] = row.get('book title', '')
+                            existing_titles[str(isbn_val).strip()] = row.get('title', '')
             except Exception:
                 pass  # File doesn't exist or is corrupted
             
@@ -153,7 +153,7 @@ class ISBNProcessor:
                         print(f"  ISBN: {isbn_key} -> {title}")
                 
                 new_row = row.copy()
-                new_row['book title'] = title
+                new_row['title'] = title
                 results.append(new_row)
             
             # Create output DataFrame

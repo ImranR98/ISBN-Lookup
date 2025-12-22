@@ -27,7 +27,7 @@ if (inputFile.endsWith('.txt')) {
   throw new Error('Invalid input file format. Only text and Excel files are supported');
 }
 
-// Define a function to fetch the book titles for all ISBN codes in the list
+// Define a function to fetch the titles for all ISBN codes in the list
 async function fetchBookTitles(isbnList) {
   const bookTitles = {};
   for (const isbn of isbnList) {
@@ -40,7 +40,7 @@ async function fetchBookTitles(isbnList) {
   return bookTitles;
 }
 
-// Fetch the book titles for all ISBN codes in the list
+// Fetch the titles for all ISBN codes in the list
 fetchBookTitles(isbnList)
   .then((bookTitles) => {
     // Create a workbook and add a worksheet
@@ -50,12 +50,12 @@ fetchBookTitles(isbnList)
     );
 
     // Add the worksheet to the workbook
-    xlsx.utils.book_append_sheet(workbook, worksheet, 'Book Titles');
+    xlsx.utils.book_append_sheet(workbook, worksheet, 'Title');
 
     // Write the workbook to a file
     const outputFilename = `${inputFile.replace(/\.[^/.]+$/, '')}-book-titles.xlsx`;
     xlsx.writeFile(workbook, outputFilename);
-    console.log(`Book titles saved to ${outputFilename}`);
+    console.log(`Titles saved to ${outputFilename}`);
   })
   .catch((error) => {
     console.error(error);

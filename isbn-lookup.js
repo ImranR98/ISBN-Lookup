@@ -39,7 +39,7 @@ async function fetchBookDataFromOpenLibrary(isbn) {
   return { title: finalTitle, authors }
 }
 
-// Define a function to fetch the book title for a given ISBN code
+// Define a function to fetch the title for a given ISBN code
 module.exports.fetchBookTitle = async (isbn, isbnDbKey) => {
   let titles = []
   if (isbnDbKey) {
@@ -47,20 +47,20 @@ module.exports.fetchBookTitle = async (isbn, isbnDbKey) => {
       const bookData = await fetchBookDataFromISBNdb(isbn, isbnDbKey)
       titles.push({ ...bookData, source: 'ISBNdb', isbn })
     } catch (error) {
-      if (isDev || titles.length === 0) console.error(`Failed to fetch book title from ISBNdb for ISBN ${isbn}: ${error}`)
+      if (isDev || titles.length === 0) console.error(`Failed to fetch title from ISBNdb for ISBN ${isbn}: ${error}`)
     }
   }
   try {
     const bookData = await fetchBookDataFromGoogleBooks(isbn)
     titles.push({ ...bookData, source: 'Google Books', isbn })
   } catch (error) {
-    if (isDev || titles.length === 0) console.error(`Failed to fetch book title from Google Books for ISBN ${isbn}: ${error}`)
+    if (isDev || titles.length === 0) console.error(`Failed to fetch title from Google Books for ISBN ${isbn}: ${error}`)
   }
   try {
     const bookData = await fetchBookDataFromOpenLibrary(isbn)
     titles.push({ ...bookData, source: 'Open Library', isbn })
   } catch (error) {
-    if (isDev || titles.length === 0) console.error(`Failed to fetch book title from Open Library for ISBN ${isbn}: ${error}`)
+    if (isDev || titles.length === 0) console.error(`Failed to fetch title from Open Library for ISBN ${isbn}: ${error}`)
   }
   titles = titles.sort((a, b) => {
     return b.title.length - a.title.length
