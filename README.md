@@ -12,6 +12,8 @@ Find book titles and authors by ISBN. Supports mass search to look up multiple I
 5. Run `npm start` to start the web app
    - Or use the CLI version by running `node cli.js <input file>` where `<input file>` is a `txt` or `xlsx` file containing a list of ISBNs (output will be generated as an `xlsx`).
 
+<img src="./screenshots/web.png" alt="Web UI" style="max-height: 50rem;" />
+
 ## Usage (Python Desktop XLSX GUI)
 
 This continuously watches a `.xlsx` file and produces a copy with items in the `"isbn"` column mapped to a new `"title"` column.
@@ -21,6 +23,8 @@ This continuously watches a `.xlsx` file and produces a copy with items in the `
 3. Ensure you are in the `excel_desktop_ui` directory.
 4. Install the required dependencies by running `pip install -r requirements.txt` (preferably in a `venv`).
 5. Run `python isbn_lookup_excel_desktop_ui.py` to start the GUI app.
+
+<img src="./screenshots/excel.png" alt="Desktop App UI" style="max-height: 50rem;" />
 
 ## APIs Used
 
