@@ -11,6 +11,10 @@ from queue import Queue, Empty
 import json
 from datetime import datetime
 
+# TODO:
+# 1. When saving the output file, first check if it was modified in the interim and if so then take up any added titles
+# 2. General review/audit for LLM madness and my own understanding
+
 # Default values that can be overridden at build time
 # These will be replaced by build script
 try:
