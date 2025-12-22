@@ -9,6 +9,7 @@ import sys
 import io
 from queue import Queue, Empty
 import json
+from datetime import datetime
 
 # Default values that can be overridden at build time
 # These will be replaced by build script
@@ -20,14 +21,16 @@ except ImportError:
 
 class ISBNProcessor:
     def __init__(self, input_file="input.xlsx", output_file="output.xlsx", 
-                 interval=5, api_key=None, api_host=None):
+                 interval=0, api_key=None, api_host=None, monitor_file_changes=True):
         self.input_file = input_file
         self.output_file = output_file
         self.interval = interval
         self.api_key = api_key if api_key is not None else DEFAULT_API_KEY
         self.api_host = api_host if api_host is not None else DEFAULT_API_HOST.rstrip('/')
+        self.monitor_file_changes = monitor_file_changes
         self.running = False
         self.session = requests.Session()
+        self.last_modified = None
         
         # Create input if missing
         try:
@@ -74,8 +77,27 @@ class ISBNProcessor:
             print(e)
             return "not found (error)"
     
+    def check_file_changed(self):
+        """Check if input file has been modified"""
+        try:
+            current_modified = os.path.getmtime(self.input_file)
+            if self.last_modified is None:
+                self.last_modified = current_modified
+                return True  # First run
+            elif current_modified != self.last_modified:
+                self.last_modified = current_modified
+                return True
+            return False
+        except Exception as e:
+            print(e)
+            return True
+    
     def process(self):
         try:
+            # Check if file has changed if monitoring is enabled
+            if self.monitor_file_changes and not self.check_file_changed():
+                return  # No changes, skip processing
+            
             # Read input
             df = pd.read_excel(self.input_file)
             
@@ -106,23 +128,29 @@ class ISBNProcessor:
             results = []
             fetched = 0
             failed = 0
+            current_time = datetime.now().strftime("%H:%M:%S")
             
-            for _, row in df.iterrows():
+            print(f"\n[{current_time}] Processing...")
+            
+            for idx, row in df.iterrows():
                 isbn_val = row[isbn_col] if isbn_col in row else None
                 
                 if pd.isna(isbn_val):
                     title = "not found (empty)"
+                    print(f"  ISBN: [empty] -> {title}")
                 else:
                     isbn_key = str(isbn_val).strip()
                     # Check existing titles first
                     if isbn_key in existing_titles:
                         title = existing_titles[isbn_key]
+                        # Don't print for cached results to avoid spam
                     else:
                         title = self.get_title(isbn_val)
                         if "not found" in title:
                             failed += 1
                         else:
                             fetched += 1
+                        print(f"  ISBN: {isbn_key} -> {title}")
                 
                 new_row = row.copy()
                 new_row['book title'] = title
@@ -134,16 +162,18 @@ class ISBNProcessor:
             # Save
             out_df.to_excel(self.output_file, index=False)
             
-            print(f"\nSummary:")
+            summary_msg = f"\n[{current_time}] Summary:"
             if fetched:
-                print(f"  Successfully fetched: {fetched} titles")
+                summary_msg += f"\n  Successfully fetched: {fetched} titles"
             if failed:
-                print(f"  Failed to fetch: {failed} titles")
-            print(f"  Total rows: {len(out_df)}")
-            print(f"  Saved to: {self.output_file}")
+                summary_msg += f"\n  Failed to fetch: {failed} titles"
+            summary_msg += f"\n  Total rows: {len(out_df)}"
+            summary_msg += f"\n  Saved to: {self.output_file}"
+            print(summary_msg)
             
         except Exception as e:
-            print(f"Error processing file: {e}")
+            current_time = datetime.now().strftime("%H:%M:%S")
+            print(f"[{current_time}] Error processing file: {e}")
     
     def run(self):
         self.running = True
@@ -151,16 +181,25 @@ class ISBNProcessor:
         print(f"API Host: {self.api_host}")
         if self.api_key:
             print(f"Using API key: {self.api_key[:8]}...")
+        print(f"Interval: {self.interval} seconds (0 = disabled)")
+        print(f"File change monitoring: {'Enabled' if self.monitor_file_changes else 'Disabled'}")
         print()
         
         while self.running:
             self.process()
             if not self.running:
                 break
-            
-            # Sleep in small increments to check for stop signal
-            for _ in range(self.interval * 10):
+
+            if self.interval <= 0:
                 time.sleep(0.1)
+                if not self.running:
+                    break
+            else:
+                # Sleep in small increments to check for stop signal
+                for _ in range(self.interval * 10):
+                    time.sleep(0.1)
+                    if not self.running:
+                        break
         
         print("Stopped.")
     
@@ -171,13 +210,13 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("ISBN Lookup Excel Desktop UI")
-        self.root.geometry("800x840")
-        self.root.minsize(800, 760)
+        self.root.geometry("800x900")
+        self.root.minsize(800, 900)
         
         # Configure grid weights for responsiveness
         root.grid_columnconfigure(1, weight=1)
         root.grid_columnconfigure(2, weight=0)
-        root.grid_rowconfigure(6, weight=1)
+        root.grid_rowconfigure(7, weight=1)
         
         # Create a main frame for better organization
         main_frame = ttk.Frame(root, padding="10")
@@ -185,7 +224,7 @@ class App:
         
         # Configure main_frame grid
         main_frame.grid_columnconfigure(1, weight=1)
-        main_frame.grid_rowconfigure(6, weight=1)
+        main_frame.grid_rowconfigure(7, weight=1)
         
         # Input file
         ttk.Label(main_frame, text="Input File:").grid(row=0, column=0, sticky="w", pady=5)
@@ -221,12 +260,19 @@ class App:
         
         # Interval
         ttk.Label(main_frame, text="Interval (seconds):").grid(row=4, column=0, sticky="w", pady=5)
-        self.interval_var = tk.StringVar(value="5")
-        ttk.Entry(main_frame, textvariable=self.interval_var, width=10).grid(row=4, column=1, sticky="w", padx=(5, 0), pady=5)
+        self.interval_var = tk.StringVar(value="0")
+        interval_entry = ttk.Entry(main_frame, textvariable=self.interval_var, width=10)
+        interval_entry.grid(row=4, column=1, sticky="w", padx=(5, 0), pady=5)
+        ttk.Label(main_frame, text="(0 = disabled)").grid(row=4, column=1, sticky="w", padx=(100, 0), pady=5)
+        
+        # File change monitoring checkbox
+        self.monitor_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(main_frame, text="Monitor input file for changes", 
+                       variable=self.monitor_var).grid(row=5, column=0, columnspan=3, sticky="w", pady=5)
         
         # Button frame
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=3, pady=15, sticky="ew")
+        button_frame.grid(row=6, column=0, columnspan=3, pady=15, sticky="ew")
         button_frame.grid_columnconfigure(0, weight=1)
         button_frame.grid_columnconfigure(1, weight=1)
         
@@ -243,7 +289,7 @@ class App:
         
         # Text area for output
         text_frame = ttk.LabelFrame(main_frame, text="Processing Log", padding="5")
-        text_frame.grid(row=6, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
+        text_frame.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
         text_frame.grid_columnconfigure(0, weight=1)
         text_frame.grid_rowconfigure(0, weight=1)
         
@@ -308,8 +354,8 @@ class App:
             # Validate interval
             try:
                 interval = int(self.interval_var.get())
-                if interval <= 0:
-                    self.log_message("Error: Interval must be positive\n")
+                if interval < 0:
+                    self.log_message("Error: Interval must be 0 or positive\n")
                     self.status_var.set("Error: Invalid interval")
                     return
             except ValueError:
@@ -330,7 +376,8 @@ class App:
                 output_file=self.output_var.get(),
                 interval=interval,
                 api_key=self.key_var.get() or None,
-                api_host=self.host_var.get()
+                api_host=self.host_var.get(),
+                monitor_file_changes=self.monitor_var.get()
             )
             
             # Start processor in separate thread
