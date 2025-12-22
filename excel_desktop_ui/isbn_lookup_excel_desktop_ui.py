@@ -40,9 +40,24 @@ class ISBNProcessor:
             print(f"Created {input_file}")
     
     def get_title(self, isbn):
+        # Convert to string and clean up
+        if pd.isna(isbn):
+            return "not found (empty)"
+        
         isbn_str = str(isbn).strip()
         if not isbn_str:
             return "not found (empty)"
+        
+        # Handle special cases for numeric ISBNs
+        try:
+            # If it's a float (e.g., 9783161484100.0), convert to int first to remove decimal
+            if isinstance(isbn, float) and isbn.is_integer():
+                isbn_str = str(int(isbn))
+            # If it's an int, convert directly
+            elif isinstance(isbn, (int, float)):
+                isbn_str = str(int(isbn)) if isbn.is_integer() else str(isbn)
+        except (ValueError, AttributeError):
+            pass
         
         try:
             url = f"{self.api_host}/{isbn_str}/title"
@@ -77,6 +92,35 @@ class ISBNProcessor:
             print(e)
             return "not found (error)"
     
+    def normalize_isbn(self, isbn_value):
+        """Convert ISBN to standardized string format"""
+        if pd.isna(isbn_value):
+            return ""
+        
+        # Convert to string
+        isbn_str = str(isbn_value).strip()
+        
+        # Handle numeric ISBNs
+        try:
+            # If it looks like a float with .0, convert to int string
+            if '.' in isbn_str:
+                try:
+                    # Try to convert to float and check if it's an integer
+                    num = float(isbn_str)
+                    if num.is_integer():
+                        isbn_str = str(int(num))
+                except (ValueError, AttributeError):
+                    pass
+            # Remove any trailing .0 that might have been added
+            if isbn_str.endswith('.0'):
+                isbn_str = isbn_str[:-2]
+        except (ValueError, AttributeError):
+            pass
+        
+        # Remove any non-digit characters except 'X' (for ISBN-10 check digit)
+        # But keep the original if it has special formatting
+        return isbn_str
+    
     def check_file_changed(self):
         """Check if input file has been modified"""
         try:
@@ -98,8 +142,12 @@ class ISBNProcessor:
             if self.monitor_file_changes and not self.check_file_changed():
                 return  # No changes, skip processing
             
-            # Read input
-            df = pd.read_excel(self.input_file)
+            # Read input with dtype=str to prevent automatic type conversion
+            try:
+                df = pd.read_excel(self.input_file, dtype=str)  # Read everything as string
+            except Exception as e:
+                print(f"Error reading with dtype=str: {e}, trying default read")
+                df = pd.read_excel(self.input_file)
             
             # Find isbn column (case-insensitive)
             isbn_col = None
@@ -112,16 +160,24 @@ class ISBNProcessor:
                 print("Error: No 'isbn' column found in input file")
                 return
             
+            # Ensure the ISBN column is treated as string
+            if isbn_col in df.columns:
+                df[isbn_col] = df[isbn_col].apply(self.normalize_isbn)
+            
             # Load existing output if it exists
             existing_titles = {}
             try:
-                out_df = pd.read_excel(self.output_file)
+                # Read output file as strings to match format
+                out_df = pd.read_excel(self.output_file, dtype=str)
                 if 'title' in out_df.columns and isbn_col in out_df.columns:
+                    # Normalize ISBNs in output for comparison
+                    out_df[isbn_col] = out_df[isbn_col].apply(self.normalize_isbn)
                     for idx, row in out_df.iterrows():
                         isbn_val = row[isbn_col]
-                        if pd.notna(isbn_val):
-                            existing_titles[str(isbn_val).strip()] = row.get('title', '')
-            except Exception:
+                        if pd.notna(isbn_val) and str(isbn_val).strip():
+                            isbn_key = str(isbn_val).strip()
+                            existing_titles[isbn_key] = row.get('title', '')
+            except Exception as e:
                 pass  # File doesn't exist or is corrupted
             
             # Process rows
@@ -135,11 +191,12 @@ class ISBNProcessor:
             for idx, row in df.iterrows():
                 isbn_val = row[isbn_col] if isbn_col in row else None
                 
-                if pd.isna(isbn_val):
+                if pd.isna(isbn_val) or not str(isbn_val).strip():
                     title = "not found (empty)"
                     print(f"  ISBN: [empty] -> {title}")
                 else:
-                    isbn_key = str(isbn_val).strip()
+                    # Normalize ISBN for comparison
+                    isbn_key = self.normalize_isbn(isbn_val)
                     # Check existing titles first
                     if isbn_key in existing_titles:
                         title = existing_titles[isbn_key]
