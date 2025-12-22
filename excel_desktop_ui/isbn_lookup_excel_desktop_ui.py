@@ -65,7 +65,7 @@ class ISBNProcessor:
             if self.api_key:
                 headers['ISBNDB_API_KEY'] = self.api_key
             
-            response = self.session.get(url, headers=headers, timeout=5)
+            response = self.session.get(url, headers=headers, timeout=300)
             
             if response.status_code < 200 or response.status_code > 299:
                 return f"not found ({response.status_code})"
