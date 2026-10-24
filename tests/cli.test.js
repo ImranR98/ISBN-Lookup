@@ -4,9 +4,10 @@ const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const xlsx = require('@e965/xlsx')
+const ExcelJS = require('exceljs')
 
-const cli = path.resolve(__dirname, '..', 'cli.js')
+const cliPath = path.resolve(__dirname, '..', 'cli.js')
+const cli = require('../cli')
 const preload = path.join(__dirname, 'helpers', 'mock-isbn-lookup.js')
 
 function tempDir (t) {
@@ -17,7 +18,7 @@ function tempDir (t) {
 
 function runCli (dir, args, env = {}) {
   const capture = path.join(dir, 'calls.jsonl')
-  const result = spawnSync(process.execPath, [cli, ...args], {
+  const result = spawnSync(process.execPath, [cliPath, ...args], {
     cwd: dir,
     env: {
       ...process.env,
@@ -35,18 +36,72 @@ function runCli (dir, args, env = {}) {
   return { result, calls }
 }
 
-function readOutput (dir, inputName) {
-  const output = path.join(dir, `${inputName}-book-titles.xlsx`)
-  assert.ok(fs.existsSync(output), `missing output workbook ${output}`)
-  const workbook = xlsx.readFile(output)
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
-  return xlsx.utils.sheet_to_json(sheet)
+function cellText (cell) {
+  const value = cell.value
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object' && typeof value.text === 'string') return value.text
+  return String(value)
 }
 
-test('looks up a text file and writes an xlsx', (t) => {
+async function readOutput (dir, inputName) {
+  const output = path.join(dir, `${inputName}-book-titles.xlsx`)
+  assert.ok(fs.existsSync(output), `missing output workbook ${output}`)
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(output)
+  const worksheet = workbook.getWorksheet('Title')
+  assert.ok(worksheet, 'missing Title worksheet')
+  assert.equal(worksheet.getCell('A1').value, 'isbn')
+  assert.equal(worksheet.getCell('B1').value, 'title')
+
+  const rows = []
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return
+    const isbn = cellText(row.getCell(1))
+    const title = cellText(row.getCell(2))
+    rows.push(title ? { isbn, title } : { isbn })
+  })
+  return rows
+}
+
+async function writeXlsx (input, rows) {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('ISBNs')
+  for (const row of rows) {
+    worksheet.addRow(row)
+  }
+  await workbook.xlsx.writeFile(input)
+  return workbook
+}
+
+test('normalizes ExcelJS cell values', () => {
+  assert.equal(cli.normalizeCellValue(' 9780345409461 '), '9780345409461')
+  assert.equal(cli.normalizeCellValue(9780345409461), '9780345409461')
+  assert.equal(cli.normalizeCellValue(null), '')
+  assert.equal(cli.normalizeCellValue(undefined), '')
+  assert.equal(cli.normalizeCellValue(''), '')
+  assert.equal(cli.normalizeCellValue(Number.NaN), '')
+  assert.equal(
+    cli.normalizeCellValue({ richText: [{ text: '978' }, { text: '0345409461' }] }),
+    '9780345409461'
+  )
+  assert.equal(
+    cli.normalizeCellValue({ text: ' 9781416594789 ', hyperlink: 'https://example.com' }),
+    '9781416594789'
+  )
+  assert.equal(
+    cli.normalizeCellValue({ formula: 'A1', result: 9780316452502 }),
+    '9780316452502'
+  )
+  assert.equal(cli.normalizeCellValue({ error: '#N/A' }), '')
+  assert.equal(cli.normalizeCellValue(true), '')
+})
+
+test('looks up a text file and writes an xlsx', async (t) => {
   const dir = tempDir(t)
   const input = path.join(dir, 'input.txt')
-  fs.writeFileSync(input, '9780345409461\n9781416594789\n')
+  fs.writeFileSync(input, '9780345409461\r\n\r\n  9781416594789  \r\n')
 
   const { result, calls } = runCli(dir, [input], {
     MOCK_ISBN_TITLES: JSON.stringify({
@@ -61,13 +116,13 @@ test('looks up a text file and writes an xlsx', (t) => {
   assert.match(result.stdout, /Titles saved to .*input-book-titles\.xlsx/)
   assert.deepEqual(calls.map(call => call.isbn), ['9780345409461', '9781416594789'])
   assert.deepEqual(calls.map(call => call.apiKey), [null, null])
-  assert.deepEqual(readOutput(dir, 'input'), [
+  assert.deepEqual(await readOutput(dir, 'input'), [
     { isbn: '9780345409461', title: 'Dune' },
     { isbn: '9781416594789', title: 'Mistborn' }
   ])
 })
 
-test('passes the command-line API key to the lookup module', (t) => {
+test('passes the command-line API key to the lookup module', async (t) => {
   const dir = tempDir(t)
   const input = path.join(dir, 'input.txt')
   fs.writeFileSync(input, '9780345409461\n')
@@ -81,7 +136,7 @@ test('passes the command-line API key to the lookup module', (t) => {
   assert.equal(calls[0].apiKey, 'secret-key')
 })
 
-test('falls back to the ISBNDB_API_KEY environment variable', (t) => {
+test('falls back to the ISBNDB_API_KEY environment variable', async (t) => {
   const dir = tempDir(t)
   const input = path.join(dir, 'input.txt')
   fs.writeFileSync(input, '9780345409461\n')
@@ -95,16 +150,10 @@ test('falls back to the ISBNDB_API_KEY environment variable', (t) => {
   assert.equal(calls[0].apiKey, 'env-key')
 })
 
-test('reads ISBNs from the first column of an xlsx file', (t) => {
+test('reads ISBNs from the first column of an xlsx file', async (t) => {
   const dir = tempDir(t)
   const input = path.join(dir, 'input.xlsx')
-  const workbook = xlsx.utils.book_new()
-  xlsx.utils.book_append_sheet(
-    workbook,
-    xlsx.utils.aoa_to_sheet([['9780345409461'], [9781416594789]]),
-    'ISBNs'
-  )
-  xlsx.writeFile(workbook, input)
+  await writeXlsx(input, [['9780345409461'], [9781416594789]])
 
   const { result, calls } = runCli(dir, [input], {
     MOCK_ISBN_TITLES: JSON.stringify({
@@ -115,13 +164,47 @@ test('reads ISBNs from the first column of an xlsx file', (t) => {
 
   assert.equal(result.status, 0, result.stderr)
   assert.deepEqual(calls.map(call => call.isbn), ['9780345409461', '9781416594789'])
-  assert.deepEqual(readOutput(dir, 'input'), [
+  assert.deepEqual(await readOutput(dir, 'input'), [
     { isbn: '9780345409461', title: 'Dune' },
     { isbn: '9781416594789', title: 'Mistborn' }
   ])
 })
 
-test('writes a row with no title when the lookup returns nothing', (t) => {
+test('skips blank rows and handles string and numeric ISBN cells', async (t) => {
+  const dir = tempDir(t)
+  const input = path.join(dir, 'input.xlsx')
+  await writeXlsx(input, [
+    [],
+    [null],
+    [null, 'not an ISBN'],
+    [''],
+    [' 9780345409461 '],
+    [9781416594789],
+    ['9780316452502']
+  ])
+
+  const { result, calls } = runCli(dir, [input], {
+    MOCK_ISBN_TITLES: JSON.stringify({
+      9780345409461: 'Dune',
+      9781416594789: 'Mistborn',
+      9780316452502: 'The Way of Kings'
+    })
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(calls.map(call => call.isbn), [
+    '9780345409461',
+    '9781416594789',
+    '9780316452502'
+  ])
+  assert.deepEqual(await readOutput(dir, 'input'), [
+    { isbn: '9780345409461', title: 'Dune' },
+    { isbn: '9781416594789', title: 'Mistborn' },
+    { isbn: '9780316452502', title: 'The Way of Kings' }
+  ])
+})
+
+test('writes a row with no title when the lookup returns nothing', async (t) => {
   const dir = tempDir(t)
   const input = path.join(dir, 'input.txt')
   fs.writeFileSync(input, '9780000000000\n')
@@ -129,7 +212,7 @@ test('writes a row with no title when the lookup returns nothing', (t) => {
   const { result } = runCli(dir, [input])
 
   assert.equal(result.status, 0, result.stderr)
-  const rows = readOutput(dir, 'input')
+  const rows = await readOutput(dir, 'input')
   assert.equal(rows.length, 1)
   assert.equal(rows[0].isbn, '9780000000000')
   assert.equal(rows[0].title, undefined)
@@ -152,4 +235,15 @@ test('rejects an unsupported input file format', (t) => {
 
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Only text and Excel files are supported/)
+})
+
+test('rejects an invalid xlsx file', (t) => {
+  const dir = tempDir(t)
+  const input = path.join(dir, 'input.xlsx')
+  fs.writeFileSync(input, 'not an xlsx workbook')
+
+  const { result } = runCli(dir, [input])
+
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /\S/)
 })

@@ -94,18 +94,6 @@
       "automergeType": "pr",
       "automergeStrategy": "squash",
       "ignoreTests": false
-    },
-    {
-      "description": "Auto-merge the xlsx replacement after the full test gate passes",
-      "matchPackageNames": [
-        "xlsx",
-        "@e965/xlsx"
-      ],
-      "automerge": true,
-      "platformAutomerge": true,
-      "automergeType": "pr",
-      "automergeStrategy": "squash",
-      "ignoreTests": false
     }
   ]
 }
