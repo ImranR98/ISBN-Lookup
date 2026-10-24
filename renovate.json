@@ -10,6 +10,7 @@
   "osvVulnerabilityAlerts": true,
   "dependencyDashboard": true,
   "rangeStrategy": "replace",
+  "separateMajorMinor": true,
   "automerge": false,
   "lockFileMaintenance": {
     "enabled": true,
@@ -35,9 +36,10 @@
       "groupName": "docker base images"
     },
     {
-      "description": "GitHub Actions updates",
+      "description": "Batch non-major GitHub Actions updates; action majors stay separate",
       "matchManagers": ["github-actions"],
-      "groupName": "github actions"
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+      "groupName": "github actions (non-major)"
     }
   ]
 }
