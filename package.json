@@ -14,9 +14,9 @@
   "author": "Imran Remtulla",
   "license": "ISC",
   "dependencies": {
-    "@e965/xlsx": "^0.20.3",
     "axios": "^1.13.2",
     "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
     "express": "^4.22.1"
   },
   "devDependencies": {
