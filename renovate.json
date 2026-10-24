@@ -71,7 +71,7 @@
       "groupName": "github actions (non-major)"
     },
     {
-      "description": "Auto-merge non-major updates after the required test check passes; majors stay manual",
+      "description": "Auto-merge non-major updates after the required test check passes",
       "matchUpdateTypes": [
         "minor",
         "patch",
