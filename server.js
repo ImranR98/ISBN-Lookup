@@ -5,14 +5,17 @@ const fs = require('fs')
 
 const isbnLookup = require('./isbn-lookup')
 
-if (process.env['ANALYTICS_SCRIPT_ELEMENT'] && /<script [^(<>)]+><\/script>/.test(process.env['ANALYTICS_SCRIPT_ELEMENT'])) {
-  const indexHTML = __dirname + '/public/index.html'
-  fs.writeFileSync(indexHTML,
-    fs.readFileSync(indexHTML).toString().replace(
-      '<!-- ANALYTICS_SCRIPT_PLACEHOLDER -->',
-      process.env['ANALYTICS_SCRIPT_ELEMENT']
-    )
-  )
+function applyAnalyticsScript (scriptElement, indexPath = path.join(__dirname, 'public', 'index.html')) {
+  if (!scriptElement || !/<script [^(<>)]+><\/script>/.test(scriptElement)) {
+    return false
+  }
+  const html = fs.readFileSync(indexPath).toString()
+  const updated = html.replace('<!-- ANALYTICS_SCRIPT_PLACEHOLDER -->', scriptElement)
+  if (updated === html) {
+    return false
+  }
+  fs.writeFileSync(indexPath, updated)
+  return true
 }
 
 const app = express()
@@ -37,6 +40,7 @@ app.all('*', (req, res) => {
   res.redirect(404, '/')
 })
 if (require.main === module) {
+  applyAnalyticsScript(process.env['ANALYTICS_SCRIPT_ELEMENT'])
   const port = process.env.PORT || 8080
   app.listen(port, () => {
     console.log(`Server started on port ${port}`)
@@ -44,3 +48,4 @@ if (require.main === module) {
 }
 
 module.exports = app
+module.exports.applyAnalyticsScript = applyAnalyticsScript

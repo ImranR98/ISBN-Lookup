@@ -328,7 +328,7 @@ class ISBNProcessor:
         """Stop the processor"""
         self.running = False
 
-class ISBNLookupApp:
+class ISBNLookupApp:  # pragma: no cover - the Tkinter GUI requires a display; headless tests cover the core logic
     """Tkinter GUI application for ISBN lookup"""
     
     def __init__(self, root):
@@ -598,7 +598,7 @@ class ISBNLookupApp:
             self.processor.stop()
         self.root.destroy()
 
-def main() -> None:
+def main() -> None:  # pragma: no cover - starts the Tkinter event loop
     """Create and run the Tkinter application"""
     root = tk.Tk()
     
