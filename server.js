@@ -36,7 +36,7 @@ app.get('/:isbn/title', async (req, res) => {
   }
 })
 
-app.all('*', (req, res) => {
+app.use((req, res) => {
   res.redirect(404, '/')
 })
 if (require.main === module) {
