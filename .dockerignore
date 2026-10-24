@@ -17,3 +17,7 @@ screenshots/
 scripts/
 tests/
 renovate.json
+.coverage*
+coverage-node/
+coverage-python.xml
+coverage/

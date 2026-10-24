@@ -31,11 +31,11 @@ jobs:
       - name: Install Node dependencies
         run: npm ci
 
-      - name: Test Node server and lookup logic
+      - name: Test Node server, lookup, and CLI with coverage
         shell: bash
         run: |
           set -o pipefail
-          npm test 2>&1 | tee test-output.log
+          npm run test:coverage 2>&1 | tee test-output.log
 
       - name: Reject skipped or missing Node tests
         shell: bash
@@ -63,11 +63,15 @@ jobs:
       - name: Install Python test dependencies
         run: python -m pip install -r excel_desktop_ui/requirements-dev.txt
 
-      - name: Test Python desktop core logic
+      - name: Test Python desktop core logic with coverage
         shell: bash
         run: |
           set -o pipefail
-          python -m pytest excel_desktop_ui/tests -q -rs 2>&1 | tee pytest-output.log
+          python -m pytest excel_desktop_ui/tests -q -rs \
+            --cov=isbn_lookup_excel_desktop_ui \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage-python.xml \
+            --cov-fail-under=95 2>&1 | tee pytest-output.log
 
       - name: Reject skipped or missing Python tests
         shell: bash
@@ -81,6 +85,15 @@ jobs:
             echo "::error::No Python tests ran."
             exit 1
           fi
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage-node/lcov.info
+            coverage-python.xml
+          if-no-files-found: error
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

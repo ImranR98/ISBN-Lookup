@@ -249,3 +249,224 @@ def test_processor_creates_a_missing_input_workbook(tmp_path):
 
     assert input_path.exists()
     assert pd.read_excel(input_path).columns.tolist() == ["isbn"]
+
+
+def test_normalize_isbn_string_keeps_non_numeric_values_with_dots():
+    assert ui.normalize_isbn_string("not-a-number.with.dot") == "not-a-number.with.dot"
+
+
+def test_fetch_book_title_handles_blank_isbn():
+    session = FakeSession({})
+
+    assert ui.fetch_book_title_from_api("", "http://server:8080", None, session) == "not found (empty)"
+    assert session.calls == []
+
+
+def test_has_file_changed_handles_a_missing_file(tmp_path):
+    changed, mtime = ui.has_file_changed(str(tmp_path / "missing.xlsx"), 42.0)
+
+    assert changed is True
+    assert mtime == 42.0
+
+
+def test_load_existing_titles_requires_a_title_column(tmp_path):
+    output_path = tmp_path / "output.xlsx"
+    pd.DataFrame({"isbn": ["9780345409461"]}).to_excel(output_path, index=False)
+
+    assert ui.load_existing_titles_from_output_file(str(output_path), "isbn") == {}
+
+
+def test_process_isbn_file_processes_a_changed_file(tmp_path):
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    write_input(input_path, ["9780345409461"])
+    os.utime(input_path, (4000, 4000))
+    session = FakeSession({
+        "9780345409461": FakeResponse(payload=[{"title": "Dune"}]),
+    })
+    config = ui.ProcessingConfig(
+        input_file=str(input_path),
+        output_file=str(output_path),
+        monitor_file_changes=True,
+    )
+
+    mtime, stats = ui.process_isbn_file(config, session, 3000.0)
+
+    assert mtime == 4000
+    assert stats.total_rows == 1
+    assert output_path.exists()
+
+
+def test_process_isbn_file_retries_without_dtype(tmp_path, monkeypatch):
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    write_input(input_path, ["9780345409461"])
+    session = FakeSession({
+        "9780345409461": FakeResponse(payload=[{"title": "Dune"}]),
+    })
+    config = ui.ProcessingConfig(
+        input_file=str(input_path),
+        output_file=str(output_path),
+        monitor_file_changes=False,
+    )
+    original_read_excel = pd.read_excel
+    dtypes = []
+
+    def flaky_read_excel(*args, **kwargs):
+        dtypes.append(kwargs.get("dtype"))
+        if len(dtypes) == 1:
+            raise ValueError("dtype not supported for this file")
+        return original_read_excel(*args, **kwargs)
+
+    monkeypatch.setattr(pd, "read_excel", flaky_read_excel)
+
+    _, stats = ui.process_isbn_file(config, session, None)
+
+    assert dtypes[0] is str
+    assert dtypes[1] is None
+    assert stats.total_rows == 1
+    assert pd.read_excel(output_path)["title"].tolist() == ["Dune"]
+
+
+class MutatingSession(FakeSession):
+    """Simulates a user editing the output workbook while a run is in progress."""
+
+    def __init__(self, output_path, manual_title, api_title):
+        super().__init__({})
+        self.output_path = output_path
+        self.manual_title = manual_title
+        self.api_title = api_title
+
+    def get(self, url, headers=None, timeout=None):
+        isbn = url.rstrip("/").split("/")[-2]
+        self.calls.append(SimpleNamespace(url=url, headers=headers or {}, timeout=timeout))
+        pd.DataFrame({
+            "isbn": [isbn],
+            "title": [self.manual_title],
+        }).to_excel(self.output_path, index=False)
+        return FakeResponse(payload=[{"title": self.api_title}])
+
+
+def test_process_isbn_file_keeps_a_manual_mid_run_fix(tmp_path, capsys):
+    input_path = tmp_path / "input.xlsx"
+    output_path = tmp_path / "output.xlsx"
+    write_input(input_path, ["9780345409461"])
+    session = MutatingSession(output_path, "Manual Title", "API Title")
+    config = ui.ProcessingConfig(
+        input_file=str(input_path),
+        output_file=str(output_path),
+        monitor_file_changes=False,
+    )
+
+    _, stats = ui.process_isbn_file(config, session, None)
+
+    assert stats.titles_fetched == 1
+    assert pd.read_excel(output_path, dtype=str)["title"].tolist() == ["Manual Title"]
+    assert "manually entered mid-process" in capsys.readouterr().out
+
+
+def test_processing_cycle_updates_last_modified_time(tmp_path, monkeypatch):
+    processor = ui.ISBNProcessor(ui.ProcessingConfig(
+        input_file=str(tmp_path / "input.xlsx"),
+        output_file=str(tmp_path / "output.xlsx"),
+    ))
+    expected = ui.ProcessingStats(total_rows=2)
+    monkeypatch.setattr(ui, "process_isbn_file", lambda *args: ("new-mtime", expected))
+
+    result = processor.run_single_processing_cycle()
+
+    assert result is expected
+    assert processor.last_modified_time == "new-mtime"
+
+
+def test_processing_cycle_returns_empty_stats_on_error(tmp_path, monkeypatch, capsys):
+    processor = ui.ISBNProcessor(ui.ProcessingConfig(
+        input_file=str(tmp_path / "input.xlsx"),
+        output_file=str(tmp_path / "output.xlsx"),
+    ))
+
+    def fail(*args):
+        raise RuntimeError("broken workbook")
+
+    monkeypatch.setattr(ui, "process_isbn_file", fail)
+
+    stats = processor.run_single_processing_cycle()
+
+    assert stats == ui.ProcessingStats()
+    assert "Error processing file: broken workbook" in capsys.readouterr().out
+
+
+def test_run_continuously_stops_after_one_cycle(tmp_path, capsys):
+    processor = ui.ISBNProcessor(ui.ProcessingConfig(
+        input_file=str(tmp_path / "input.xlsx"),
+        output_file=str(tmp_path / "output.xlsx"),
+        interval_seconds=0,
+        api_key="secret-key",
+    ))
+    cycles = []
+
+    def cycle():
+        cycles.append(1)
+        processor.running = False
+        return ui.ProcessingStats(total_rows=1)
+
+    processor.run_single_processing_cycle = cycle
+    processor.run_continuously()
+
+    out = capsys.readouterr().out
+    assert cycles == [1]
+    assert processor.running is False
+    assert "Running ISBN processor..." in out
+    assert "Using API key: secret-k..." in out
+    assert "Interval: 0 seconds" in out
+    assert "Processor stopped." in out
+
+    processor.running = True
+    processor.stop()
+    assert processor.running is False
+
+
+def test_run_continuously_uses_the_interval_and_stops(tmp_path, monkeypatch):
+    processor = ui.ISBNProcessor(ui.ProcessingConfig(
+        input_file=str(tmp_path / "input.xlsx"),
+        output_file=str(tmp_path / "output.xlsx"),
+        interval_seconds=1,
+    ))
+    cycles = []
+
+    def cycle():
+        cycles.append(1)
+        return ui.ProcessingStats()
+
+    def stop_during_sleep(_seconds):
+        processor.running = False
+
+    monkeypatch.setattr(ui.time, "sleep", stop_during_sleep)
+    processor.run_single_processing_cycle = cycle
+    processor.run_continuously()
+
+    assert cycles == [1]
+    assert processor.running is False
+
+
+def test_run_continuously_sleeps_when_interval_is_disabled(tmp_path, monkeypatch):
+    processor = ui.ISBNProcessor(ui.ProcessingConfig(
+        input_file=str(tmp_path / "input.xlsx"),
+        output_file=str(tmp_path / "output.xlsx"),
+        interval_seconds=0,
+    ))
+    cycles = []
+
+    def cycle():
+        cycles.append(1)
+        return ui.ProcessingStats()
+
+    def stop_during_sleep(_seconds):
+        processor.running = False
+
+    monkeypatch.setattr(ui.time, "sleep", stop_during_sleep)
+    processor.run_single_processing_cycle = cycle
+    processor.run_continuously()
+
+    assert cycles == [1]
+    assert processor.running is False

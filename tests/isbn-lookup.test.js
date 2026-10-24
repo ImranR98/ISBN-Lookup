@@ -125,3 +125,25 @@ test('treats a Google Books empty result set as a provider failure', async (t) =
 
   assert.deepEqual(results.map(r => r.source), ['Open Library'])
 })
+
+test('continues when ISBNdb returns no book object', async (t) => {
+  mockAxios(t, [
+    ['api2.isbndb.com', () => ({})],
+    ['googleapis.com', google({ title: 'Dune', authors: ['Frank Herbert'] })]
+  ])
+
+  const results = await isbnLookup.fetchBookTitle(ISBN, 'secret-key')
+
+  assert.deepEqual(results.map(r => r.source), ['Google Books'])
+})
+
+test('continues when Open Library has no entry for the ISBN', async (t) => {
+  mockAxios(t, [
+    ['googleapis.com', google({ title: 'Dune', authors: ['Frank Herbert'] })],
+    ['openlibrary.org', () => ({})]
+  ])
+
+  const results = await isbnLookup.fetchBookTitle(ISBN)
+
+  assert.deepEqual(results.map(r => r.source), ['Google Books'])
+})
