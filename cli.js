@@ -1,6 +1,6 @@
 require('dotenv').config();
 const fs = require('fs');
-const xlsx = require('xlsx');
+const xlsx = require('@e965/xlsx');
 
 const isbnLookup = require('./isbn-lookup')
 
