@@ -67,8 +67,8 @@ python -m pytest excel_desktop_ui/tests
 
 Renovate (`renovate.json`) tracks npm packages, the Python desktop requirements,
 Docker base images, and GitHub Actions. Non-major updates are grouped; majors
-stay separate and manual. Minor/patch/pin/digest updates use GitHub native
+stay separate. Minor/patch/pin/digest and major updates use GitHub native
 auto-merge once the required `test` check passes. This depends on repository
 settings outside this repo: `test` must be a required status check on `main` and
 native auto-merge must be enabled. The config keeps a global `automerge: false`
-and opts in only to non-major update types, so majors always need a human.
+and opts in per update type, so every merge still requires the `test` gate.
