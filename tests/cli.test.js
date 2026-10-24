@@ -4,7 +4,7 @@ const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
-const xlsx = require('xlsx')
+const xlsx = require('@e965/xlsx')
 
 const cli = path.resolve(__dirname, '..', 'cli.js')
 const preload = path.join(__dirname, 'helpers', 'mock-isbn-lookup.js')
