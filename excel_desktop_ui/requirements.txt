@@ -1,4 +1,4 @@
-pandas
-openpyxl
-requests
-pyinstaller
+pandas==3.1.0
+openpyxl==3.1.5
+requests==2.34.2
+pyinstaller==6.22.3

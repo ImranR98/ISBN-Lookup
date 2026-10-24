@@ -10,3 +10,6 @@ build/
 dist/
 *.spec
 build_config.py
+.pytest_cache/
+test-output.log
+pytest-output.log

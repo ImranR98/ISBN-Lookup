@@ -11,3 +11,9 @@ build/
 dist/
 *.spec
 build_config.py
+.github/
+excel_desktop_ui/
+screenshots/
+scripts/
+tests/
+renovate.json

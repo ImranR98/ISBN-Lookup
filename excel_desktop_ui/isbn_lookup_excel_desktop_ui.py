@@ -1,9 +1,9 @@
+from __future__ import annotations
+
 import pandas as pd
 import requests
 import time
 import threading
-import tkinter as tk
-from tkinter import ttk
 import os
 import sys
 import io
@@ -12,6 +12,14 @@ import json
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
 from dataclasses import dataclass
+
+try:
+    import tkinter as tk
+    from tkinter import ttk
+except ImportError:  # Headless environments can still import and exercise the core logic.
+    tk = None
+    ttk = None
+
 
 try:
     from build_config import DEFAULT_API_HOST, DEFAULT_API_KEY

@@ -4,7 +4,11 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test --test-reporter=spec"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "author": "Imran Remtulla",
   "license": "ISC",
