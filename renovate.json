@@ -14,40 +14,98 @@
   "automerge": false,
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["at any time"]
+    "schedule": [
+      "at any time"
+    ]
   },
   "packageRules": [
     {
       "description": "Batch non-major npm updates; majors stay separate",
-      "matchManagers": ["npm"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
       "groupName": "npm deps (non-major)"
     },
     {
       "description": "Batch non-major Python updates for the desktop subproject",
-      "matchManagers": ["pip_requirements"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
       "groupName": "python deps (non-major)"
     },
     {
       "description": "Docker base image pins and digest refreshes",
-      "matchManagers": ["dockerfile"],
-      "matchUpdateTypes": ["digest", "pinDigest"],
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchUpdateTypes": [
+        "digest",
+        "pinDigest"
+      ],
       "groupName": "docker base images"
     },
     {
       "description": "Batch non-major GitHub Actions updates; action majors stay separate",
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest"
+      ],
       "groupName": "github actions (non-major)"
     },
     {
       "description": "Auto-merge non-major updates after the required test check passes; majors stay manual",
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest", "pinDigest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest"
+      ],
       "automerge": true,
       "platformAutomerge": true,
       "automergeType": "pr",
       "automergeStrategy": "squash"
+    },
+    {
+      "description": "Auto-merge major updates after the full test gate passes",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": true,
+      "platformAutomerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "ignoreTests": false
+    },
+    {
+      "description": "Auto-merge the xlsx replacement after the full test gate passes",
+      "matchPackageNames": [
+        "xlsx",
+        "@e965/xlsx"
+      ],
+      "automerge": true,
+      "platformAutomerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "ignoreTests": false
     }
   ]
 }
