@@ -36,7 +36,11 @@ app.get('/:isbn/title', async (req, res) => {
 app.all('*', (req, res) => {
   res.redirect(404, '/')
 })
-const port = process.env.PORT || 8080
-app.listen(port, () => {
-  console.log(`Server started on port ${port}`)
-})
+if (require.main === module) {
+  const port = process.env.PORT || 8080
+  app.listen(port, () => {
+    console.log(`Server started on port ${port}`)
+  })
+}
+
+module.exports = app

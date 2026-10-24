@@ -32,3 +32,42 @@ The following APIs are checked (results are sorted by descending order of title 
 1. [ISBNdb](https://isbndb.com/apidocs/v2) (if an API key is available)
 2. [Google Books](https://developers.google.com/books/)
 3. [Open Library](https://openlibrary.org/developers/api)
+
+## Container image
+
+Images are built by GitHub Actions and published to the GitHub Container Registry:
+
+```bash
+docker run --rm -p 8080:8080 ghcr.io/imranr98/isbn-lookup:latest
+```
+
+`latest` follows the `main` branch, and `sha-<commit>` tags are immutable. To build locally:
+
+```bash
+docker build -t ghcr.io/imranr98/isbn-lookup .
+```
+
+## Development
+
+Run the Node server and lookup tests:
+
+```bash
+npm ci
+npm test
+```
+
+Run the desktop subproject's core tests (from the repository root):
+
+```bash
+python -m pip install -r excel_desktop_ui/requirements-dev.txt
+python -m pytest excel_desktop_ui/tests
+```
+
+## Dependency updates
+
+Renovate (`renovate.json`) tracks npm packages, the Python desktop requirements,
+Docker base images, and GitHub Actions. Non-major updates are grouped; majors
+stay separate. Auto-merge is deliberately disabled: the repository has no
+required branch-protection check, so a failing update could merge without a
+green `test` job. Enable auto-merge only after the `test` check is required on
+`main`.
