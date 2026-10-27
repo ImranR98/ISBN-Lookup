@@ -151,7 +151,6 @@ jobs:
           {
             echo "image=${image}"
             echo "tags<<EOF"
-            echo "${image}:latest"
             echo "${image}:sha-${GITHUB_SHA}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -172,6 +171,31 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify pushed image
+        env:
+          TAGS: ${{ steps.images.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            bash scripts/smoke-image.sh "$tag"
+          done <<< "$TAGS"
+
+      - name: Promote verified image
+        env:
+          TAGS: ${{ steps.images.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            image="${tag%:*}"
+            digest="$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')"
+            docker buildx imagetools create -t "${image}:latest" "$tag"
+            actual="$(docker buildx imagetools inspect "${image}:latest" --format '{{.Manifest.Digest}}')"
+            [ "$actual" = "$digest" ]
+            echo "promoted $tag -> ${image}:latest"
+          done <<< "$TAGS"
 
       - name: Record digest
         env:
